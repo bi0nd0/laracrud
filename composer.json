@@ -1,0 +1,26 @@
+{
+    "name": "whitegolem/laracrud",
+    "description": "crud controller for Laravel 4",
+    "homepage": "",
+    "keywords": [],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Francesco Delacqua",
+            "email": "francesco.delacqua@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.3.0",
+        "illuminate/support": "4.0.x"
+    },
+    "autoload": {
+        "classmap": [
+            "src/migrations"
+        ],
+        "psr-0": {
+            "Whitegolem\\LaraCrud": "src/"
+        }
+    },
+    "minimum-stability": "dev"
+}
