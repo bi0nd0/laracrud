@@ -3,7 +3,7 @@
     "description": "crud controller for Laravel 4",
     "homepage": "",
     "keywords": [],
-    "license": "MIT",
+    "license": "GPLv2",
     "authors": [
         {
             "name": "Francesco Delacqua",
