@@ -21,10 +21,6 @@ class CrudController extends Controller {
 	{
 		$this->controllerName = Str::lower(preg_replace('/Controller$/', '', get_class($this)));
 		$this->modelName = Str::studly(Str::singular($this->controllerName));
-
-		$this->beforeFilter('auth',  array(
-			'on' => array('post','put','delete')
-		));
 	}
 
 	/**
@@ -51,9 +47,11 @@ class CrudController extends Controller {
 		$parameters = Input::all();
 		$query = call_user_func_array( array($this->modelName,'applyParameters'), array($parameters) );
 
+		$beforeResultsEvent = Event::fire('before.results', array($query));
+
 		$results = $query->get();
 
-		$event = Event::fire('before.response', array($results));
+		$beforeResponseEvent = Event::fire('before.response', array($results));
 
 		if(Request::ajax())
 		{
@@ -167,7 +165,7 @@ class CrudController extends Controller {
 	 */
 	public function update($id)
 	{
-		$this->model = call_user_func_array( "$this->modelName::find", array($id) );
+		$this->model = call_user_func_array( array($this->modelName,"find"), array($id) );
 
 		// if(is_null($this->model)) return $this->modelNotFoundError();
 		if(is_null($this->model)) return $this->store();
