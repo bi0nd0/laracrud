@@ -40,31 +40,59 @@ class CrudController extends Controller {
 	/**
 	 * Display a listing of the resource.
 	 *
+	 * Use the event hooks in the inheriting controller to alter the variables passed by reference
+	 * IE: Event::listen('before.query', function(&$parameters){
+	 *		if(!in_array('page', $parameters)) $parameters['page'] = 1;
+	 *	});
+	 *
 	 * @return Response
 	 */
 	public function index()
 	{
+		
 		$parameters = Input::all();
+
+		//use this hook to alter the parameters
+		$beforeQuery = Event::fire('before.query', array(&$parameters));
+
 		$query = call_user_func_array( array($this->modelName,'applyParameters'), array($parameters) );
 
-		$beforeResultsEvent = Event::fire('before.results', array($query));
+		//use this hook to alter the query
+		$beforeResults = Event::fire('before.results', array(&$query));
 
-		$results = $query->get();
+		// gestione paginazione
+		if(isset($parameters['page']))
+		{
+			$paginator = $query->paginate();
+			$results = $paginator->getCollection();
+		}else {
+			$results = $query->get();
+		}
 
-		$beforeResponseEvent = Event::fire('before.response', array($results));
+
+		$data = array(
+			'total' => $results->count(),
+			$this->controllerName => $results,
+		);
+
 
 		if(Request::ajax())
 		{
-			return \Response::json([
-				'error' => false,
-				'results' =>$results->toArray()],
+			$data['error'] = false;
+			$data[$this->controllerName] = $results->toArray();
+
+			//use this hook to alter the data of the view
+			$beforeResponse = Event::fire('before.response', array(&$data));
+			return \Response::json($data,
 				200
 			);
 		}else {
-			$this->layout->content = View::make("{$this->controllerName}.index", [
-				$this->controllerName => $results
-			]);
+			//use this hook to alter the data of the view
+			if($paginator) $data['paginator'] = $paginator;
+			$beforeResponse = Event::fire('before.response', array(&$data));
+			$this->layout->content = View::make("{$this->controllerName}.index", $data);
 		}
+
 	}
 
 
