@@ -12,6 +12,8 @@
 var pluginName = "remoteCombo",
 	defaults = {
 		'remoteInputSelector'		: 'input[type=text].mm-remote',
+		'resultsKey'				: 'results', //used in ajax results function
+		'resultsKeySingular'		: 'result', //used in initSelection function
 		'sel2AllowClear'			: true,
 		'sel2Placeholder'			: 'cerca un elemento',
 		'formatResultCallback'		: function(item) {
@@ -45,7 +47,7 @@ Plugin.prototype.initSelect2 = function(url) {
 			},
 			results: function (data, page) { // parse the results into the format expected by Select2.
 				// since we are using custom formatting functions we do not need to alter remote JSON data
-				return {results: data.results};
+				return {results: data[self.options.resultsKey]};
 			}
 		},
 		initSelection: function(element, callback) {
@@ -59,7 +61,7 @@ Plugin.prototype.initSelect2 = function(url) {
 						// apikey: "ju6z9mjyajq2djue3gbvv26t"
 					},
 					dataType: "json"
-				}).done(function(data) { callback(data.results); });
+				}).done(function(data) { callback(data[self.options.resultsKeySingular]); });
 			}
 		},
 		formatResult: self.options.formatResultCallback,
