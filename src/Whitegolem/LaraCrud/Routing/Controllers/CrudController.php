@@ -12,15 +12,23 @@ use Illuminate\Support\Facades\Redirect;
 class CrudController extends Controller {
 
 	private $controllerName;
+
 	private $modelName;
+
+	private $resultsKey;
+
+	private $resultsKeySingular;
 	
 	protected $model;
-	protected $beforeResponseCallable; //usato per memorizzare una funzione da eseguire nell'hook beforeResponse
+
+	protected $paginate = false; //true to enable pagination by default
 
 	public function __construct()
 	{
 		$this->controllerName = Str::lower(preg_replace('/Controller$/', '', get_class($this)));
 		$this->modelName = Str::studly(Str::singular($this->controllerName));
+		$this->resultsKey = $this->controllerName;
+		$this->resultsKeySingular = Str::singular($this->resultsKey);
 	}
 
 	/**
@@ -34,48 +42,6 @@ class CrudController extends Controller {
 		{
 			$this->layout = View::make($this->layout);
 		}
-	}
-
-			/**
-	* ricerca parole separate da spazio tra i campi $searchable del model
-	*/
-	protected function buildSearchAny($query,$queryString)
-    {
-		$words = explode(' ',$queryString);
-		foreach($words as $word)
-		{
-			if($word!='')
-			{
-				$query->where(function($query) use($word)
-				{
-					$model  = new $this->modelName;
-					$fields = $model->getSsearchable() ?: array();
-					foreach($fields as $field){
-						$query->orWhere($field,'like',"%$word%");
-					}
-				});
-			}
-		}
-
-		return $query;
-	}
-
-
-	/**
-	* ordina i risultati della query in base a parametri in formato json "{"titolo":1,"tecnica":-1}"
-	* @param Illuminate\Database\Eloquent\Builder $query
-	* @param string $sortOptions una stringa formato json con i parametri per l'ordinamento
-	*/
-	protected function buildSortBy($query, $sortOptions)
-	{
-		if(!is_array($sortOptions)) $sortOptions = json_decode($sortOptions);
-
-		foreach($sortOptions as $column=>$direction)
-		{
-			$direction = ($direction==-1) ? 'desc' : 'asc';
-			$query->orderBy($column, $direction);
-		}
-		return $query;
 	}
 
 
@@ -100,21 +66,23 @@ class CrudController extends Controller {
 			'pp' => Input::get('pp'), //perpage
 		);
 
-		$model = new $this->modelName;
+		if(!$parameters['page'] && $this->paginate) $parameters['page'] = 1;
+
+		$this->model = new $this->modelName;
 
 		//use this hook to alter the parameters
 		$beforeQuery = Event::fire('before.query', array(&$parameters));
-		$query = $model
+		$query = $this->model
 					->searchAny($parameters['q'])
 					->sortBy($parameters['s']);
 
-		//use this hook to alter the query or the model
-		$beforeResults = Event::fire('before.results', array(&$query,&$model));
+		//use this hook to alter the query
+		$beforeResults = Event::fire('before.results', array(&$query));
 
 		// pagination
 		if(isset($parameters['page']))
 		{
-			$perPage = $parameters['pp'] ?: $model->getPerPage();
+			$perPage = $parameters['pp'] ?: $this->model->getPerPage();
 			$paginator = $query->paginate($perPage);
 
 			//preserve the url query in the paginator
@@ -127,25 +95,24 @@ class CrudController extends Controller {
 		//set the data for the view
 		$data = array(
 			'total' => $total,
-			$this->controllerName => $results,
+			$this->resultsKey => $results,
 		);
 
 		if(Request::ajax())
 		{
 			$data['error'] = false;
-			$data[$this->controllerName] = $results->toArray();
+			$data[$this->resultsKey] = $results->toArray();
 
 			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
-			return \Response::json($data,
-				200
-			);
-		}else {
-			//use this hook to alter the data of the view
-			if($paginator) $data['paginator'] = $paginator;
-			$beforeResponse = Event::fire('before.response', array(&$data));
-			$this->layout->content = View::make("{$this->controllerName}.index", $data);
+			return \Response::json($data,200);
 		}
+
+		if(isset($paginator)) $data['paginator'] = $paginator;
+
+		//use this hook to alter the data of the view
+		$beforeResponse = Event::fire('before.response', array(&$data));
+		$this->layout->content = View::make("{$this->controllerName}.index", $data);
 
 	}
 
@@ -157,7 +124,7 @@ class CrudController extends Controller {
 	 */
 	public function create()
 	{
-		$event = Event::fire('before.response', array());
+		$beforeResponse = Event::fire('before.response', array());
 
 		$this->layout->content = View::make("{$this->controllerName}.create");
 	}
@@ -177,18 +144,19 @@ class CrudController extends Controller {
 		if(! $this->model->save() ) return $this->savingError($this->model);
 
 		$message = 'nuovo elemento creato';
-
-		$event = Event::fire('before.response', array($this->model, $message));
+		$data = array();
 
 		if(Request::ajax())
 		{	
-			return \Response::json([
-				'error' => false,
-				'message' =>$message,
-				'results' =>$this->model->toArray()],
-				201
-			);
+
+			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data['message'] = $message;
+			$data['error'] = false;
+
+			$beforeResponse = Event::fire('before.response', array(&$data));
+			return \Response::json($data,201);
 		}
+
 		return Redirect::route("{$this->controllerName}.edit", array($this->model->id))->with('success', $message);
 	}
 
@@ -200,24 +168,30 @@ class CrudController extends Controller {
 	 */
 	public function show($id)
 	{
-		//se ho impostato una custom query nel controller la eseguo, altrimenti eseguo all
-		$this->model = (isset($this->query)) ? $this->query->find($id) : call_user_func_array( "$this->modelName::find", array($id) );
+		$query = call_user_func(array($this->modelName, 'query'));
+
+		//use this hook to alter the query
+		$beforeResults = Event::fire('before.results', array(&$query));
+
+		$this->model = $query->find($id);
 
 		if(is_null($this->model)) return $this->modelNotFoundError();
 
-		$event = Event::fire('before.response', array($this->model));
+		$data = array(
+			$this->resultsKeySingular => $this->model
+		);
 
 		if(Request::ajax())
 		{
-			return \Response::json([
-				'error' => false,
-				'results' =>$this->model->toArray()],
-				200
-			);
+			$data['error'] = false;
+			$data[$this->resultsKeySingular] = $this->model->toArray();
+
+			$beforeResponse = Event::fire('before.response', array(&$data));
+			return \Response::json($data,200);
 		}
-		$this->layout->content = View::make("{$this->controllerName}.show", [
-			Str::singular($this->controllerName) => $this->model
-		]);
+
+		$beforeResponse = Event::fire('before.response', array(&$data));
+		$this->layout->content = View::make("{$this->controllerName}.show", $data);
 	}
 
 	/**
@@ -228,15 +202,21 @@ class CrudController extends Controller {
 	 */
 	public function edit($id)
 	{
-		$this->model = (isset($this->query)) ? $this->query->find($id) : call_user_func_array( "$this->modelName::find", array($id) );
+		$query = call_user_func(array($this->modelName, 'query'));
+
+		//use this hook to alter the query
+		$beforeResults = Event::fire('before.results', array(&$query));
+
+		$this->model = $query->find($id);
 
 		if(is_null($this->model)) return $this->modelNotFoundError();
 
-		$event = Event::fire('before.response', array());
+		$data = array(
+			$this->resultsKeySingular => $this->model
+		);
 
-		$this->layout->content = View::make("{$this->controllerName}.edit", [
-			Str::singular($this->controllerName) => $this->model
-		]);
+		$beforeResponse = Event::fire('before.response', array(&$data));
+		$this->layout->content = View::make("{$this->controllerName}.edit", $data);
 	}
 
 	/**
@@ -247,9 +227,14 @@ class CrudController extends Controller {
 	 */
 	public function update($id)
 	{
-		$this->model = call_user_func_array( array($this->modelName,"find"), array($id) );
+		$query = call_user_func(array($this->modelName, 'query'));
 
-		// if(is_null($this->model)) return $this->modelNotFoundError();
+		//use this hook to alter the query
+		$beforeResults = Event::fire('before.results', array(&$query));
+
+		$this->model = $query->find($id);
+
+		//se l'elemento non è presente creane uno nuovo
 		if(is_null($this->model)) return $this->store();
 
 		$input = Input::all();
@@ -258,18 +243,21 @@ class CrudController extends Controller {
 		//controlla se ci sono problemi durante il salvataggio
 		if(! $this->model->save() ) return $this->savingError($this->model);
 
-		$event = Event::fire('before.response', array());
-
 		$message = 'elemento aggiornato';
+		$data = array();
+
 		if(Request::ajax())
-		{
-			return \Response::json([
-				'error' => false,
-				'message' =>$message,
-				'results' =>$this->model->toArray()],
-				200
-			);
+		{	
+
+			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data['message'] = $message;
+			$data['error'] = false;
+
+			$beforeResponse = Event::fire('before.response', array(&$data));
+			return \Response::json($data,200);
 		}
+
+
 		return Redirect::route("{$this->controllerName}.edit", array($id))->with('success', $message);
 	}
 
@@ -281,23 +269,37 @@ class CrudController extends Controller {
 	 */
 	public function destroy($id)
 	{
-		$this->model = call_user_func_array( "$this->modelName::find", array($id) );
-
-		if(is_null($this->model)) return $this->modelNotFoundError();
+		$this->model = $this->getModel($id);
 
 		$this->model->delete();
 
 		$event = Event::fire('before.response', array());
 
 		$message = 'elemento eliminato';
+		$data = array();
+
 		if(Request::ajax())
-			return \Response::json([
-			'error' => false,
-			'message' =>$message,
-			'results' =>$this->model->toArray()],
-			200
-		);
+		{
+			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data['message'] = $message;
+			$data['error'] = false;
+
+			$beforeResponse = Event::fire('before.response', array(&$data));
+			return \Response::json($data,200);
+		}
 		return Redirect::route("{$this->controllerName}.index")->with('success', $message);
+	}
+
+	protected function getModel($id = null)
+	{
+		if(is_null($id)) return new $this->modelName;
+
+		$model = call_user_func_array( array($this->modelName, 'find'), array($id) );
+
+		if(is_null($model)) return $this->modelNotFoundError();
+
+		return $model;
+
 	}
 
 	/**
@@ -308,12 +310,12 @@ class CrudController extends Controller {
 	*/
 	protected function modelNotFoundError($message = 'elemento non trovato')
 	{
-		if(Request::ajax())
-			return \Response::json([
+		$data = array(
 			'error' => true,
-			'message' =>$message],
-			404
+			'message' =>$message
 		);
+
+		if(Request::ajax())	return \Response::json($data,404);
 		return Redirect::home()->with('error', $message);
 	}
 
@@ -325,13 +327,13 @@ class CrudController extends Controller {
 	*/
 	protected function savingError($model)
 	{
-		if(Request::ajax())
-			return \Response::json([
+		$data = array(
 			'error' => true,
 			'message' => 'saving error',
-			'errors' => $model->errors->toArray()],
-			400
+			'errors' => $model->errors->toArray()
 		);
+
+		if(Request::ajax()) return \Response::json($data,400);
 		return Redirect::back()->withInput()->withErrors($model->errors);
 	}
 
