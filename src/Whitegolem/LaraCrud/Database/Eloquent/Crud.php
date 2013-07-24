@@ -10,7 +10,7 @@ class Crud extends Model{
 
 	protected static $rules = array();
 
-	protected $searchable = array();
+	protected static $searchable = array();
 
 	public static function boot()
 	{
@@ -39,26 +39,19 @@ class Crud extends Model{
 	}
 
 	/**
-	* applica i parametri di ricerca, ordinamento, paginazione alla query
-	*/
-	public function scopeApplyParameters($query, $parameters)
+	 * Get the fields available for full search.
+	 *
+	 * @return array
+	 */
+	public function getSearchable()
 	{
-		extract($parameters);
-
-		//ricerca fulltext
-		if(isset($q)) $query = $this->searchAny($query, $q);
-
-		//ordinamento
-		if(isset($s)) $query = $this->sortBy($query, $s);
-
-
-		return $query;
+		return static::$searchable;
 	}
 
 	/**
 	* ricerca parole separate da spazio tra i campi $searchable del model
 	*/
-	protected function searchAny($query,$queryString)
+	public function scopeSearchAny($query,$queryString='')
     {
 		$words = explode(' ',$queryString);
 		foreach($words as $word)
@@ -67,7 +60,7 @@ class Crud extends Model{
 			{
 				$query->where(function($query) use($word)
 				{
-					$fields = $this->searchable ?: array();
+					$fields = static::$searchable ?: array();
 					foreach($fields as $field){
 						$query->orWhere($field,'like',"%$word%");
 					}
@@ -84,9 +77,12 @@ class Crud extends Model{
 	* @param Illuminate\Database\Eloquent\Builder $query
 	* @param string $sortOptions una stringa formato json con i parametri per l'ordinamento
 	*/
-	protected function sortBy($query,$sortOptions)
+	public function scopeSortBy($query,$sortOptions='{}')
 	{
+		if(is_null($sortOptions)) return $query;
+
 		if(!is_array($sortOptions)) $sortOptions = json_decode($sortOptions);
+
 
 		foreach($sortOptions as $column=>$direction)
 		{

@@ -36,12 +36,56 @@ class CrudController extends Controller {
 		}
 	}
 
+			/**
+	* ricerca parole separate da spazio tra i campi $searchable del model
+	*/
+	protected function buildSearchAny($query,$queryString)
+    {
+		$words = explode(' ',$queryString);
+		foreach($words as $word)
+		{
+			if($word!='')
+			{
+				$query->where(function($query) use($word)
+				{
+					$model  = new $this->modelName;
+					$fields = $model->getSsearchable() ?: array();
+					foreach($fields as $field){
+						$query->orWhere($field,'like',"%$word%");
+					}
+				});
+			}
+		}
+
+		return $query;
+	}
+
+
+	/**
+	* ordina i risultati della query in base a parametri in formato json "{"titolo":1,"tecnica":-1}"
+	* @param Illuminate\Database\Eloquent\Builder $query
+	* @param string $sortOptions una stringa formato json con i parametri per l'ordinamento
+	*/
+	protected function buildSortBy($query, $sortOptions)
+	{
+		if(!is_array($sortOptions)) $sortOptions = json_decode($sortOptions);
+
+		foreach($sortOptions as $column=>$direction)
+		{
+			$direction = ($direction==-1) ? 'desc' : 'asc';
+			$query->orderBy($column, $direction);
+		}
+		return $query;
+	}
+
 
 	/**
 	 * Display a listing of the resource.
 	 *
 	 * Use the event hooks in the inheriting controller to alter the variables passed by reference
-	 * IE: Event::listen('before.query', function(&$parameters){
+	 *
+	 * For example to add default pagination in a controller:
+	 * Event::listen('before.query', function(&$parameters){
 	 *		if(!in_array('page', $parameters)) $parameters['page'] = 1;
 	 *	});
 	 *
@@ -49,32 +93,42 @@ class CrudController extends Controller {
 	 */
 	public function index()
 	{
-		
-		$parameters = Input::all();
+		$parameters = array(
+			'q' => Input::get('q'), //queryString
+			's' => Input::get('s'), //sortoptions
+			'page' => Input::get('page'), //pagination
+			'pp' => Input::get('pp'), //perpage
+		);
+
+		$model = new $this->modelName;
 
 		//use this hook to alter the parameters
 		$beforeQuery = Event::fire('before.query', array(&$parameters));
+		$query = $model
+					->searchAny($parameters['q'])
+					->sortBy($parameters['s']);
 
-		$query = call_user_func_array( array($this->modelName,'applyParameters'), array($parameters) );
+		//use this hook to alter the query or the model
+		$beforeResults = Event::fire('before.results', array(&$query,&$model));
 
-		//use this hook to alter the query
-		$beforeResults = Event::fire('before.results', array(&$query));
-
-		// gestione paginazione
+		// pagination
 		if(isset($parameters['page']))
 		{
-			$paginator = $query->paginate();
-			$results = $paginator->getCollection();
-		}else {
-			$results = $query->get();
+			$perPage = $parameters['pp'] ?: $model->getPerPage();
+			$paginator = $query->paginate($perPage);
+
+			//preserve the url query in the paginator
+			$paginator->appends(array_except($parameters,'page'));
 		}
 
+		$results = isset($paginator) ? $paginator->getCollection() : $query->get();
+		$total = isset($paginator) ? $paginator->getTotal() : $results->count();
 
+		//set the data for the view
 		$data = array(
-			'total' => $results->count(),
+			'total' => $total,
 			$this->controllerName => $results,
 		);
-
 
 		if(Request::ajax())
 		{
