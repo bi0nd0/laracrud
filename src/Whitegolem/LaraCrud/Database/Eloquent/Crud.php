@@ -58,7 +58,7 @@ class Crud extends Model{
 	 */
 	public function getSearchable()
 	{
-		return static::$searchable;
+		return isset(static::$searchable) ? static::$searchable : $this->getFillable();
 	}
 
 	/**
@@ -179,7 +179,7 @@ class Crud extends Model{
     {
 		$words = explode(' ',$queryString);
 		// set the default searchable fields to the fillable array
-		$fields = isset(static::$searchable) ? static::$searchable : $this->getFillable();
+		$fields = $this->getSearchable();
 		foreach($words as $word)
 		{
 			if($word!='')
