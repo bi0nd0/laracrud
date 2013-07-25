@@ -3,6 +3,7 @@
 use Illuminate\Database\Eloquent\Model;
 
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Input;
 
 class Crud extends Model{
 
@@ -21,6 +22,16 @@ class Crud extends Model{
 			$input = $model->toArray();
 
 			return $model->validate($input);
+		});
+
+		static::saved(function($model)
+		{
+			$model->updateRelations();
+		});
+
+		static::deleted(function($model)
+		{
+			$model->destroyRelations();
 		});
 	}
 
@@ -47,6 +58,117 @@ class Crud extends Model{
 	{
 		return static::$searchable;
 	}
+
+	/**
+	* --- RELAZIONI
+	*/
+
+	/*
+	* this method is called on 'saved' event.
+	* can be overridden to handle relations
+	*/
+	public function updateRelations() {
+		$attributes = Input::all();
+		$keys = array_keys($attributes);
+
+		foreach($keys as $key)
+		{
+			if (method_exists($this, $key)) {
+				$methodClass =  get_class($this->$key());
+				switch($methodClass)
+				{
+					case 'Illuminate\Database\Eloquent\Relations\BelongsToMany':
+						$data = $attributes[$key];
+						$this->setBelongsToMany($key,$data);
+						break;
+					case 'Illuminate\Database\Eloquent\Relations\HasOneOrMany':
+					case 'Illuminate\Database\Eloquent\Relations\HasOne':
+					case 'Illuminate\Database\Eloquent\Relations\HasMany':
+						$data = $attributes[$key];
+						$this->setHasOneOrMany($key,$data);
+						break;
+				}
+			}
+		}
+
+	}
+
+	/*
+	* this method is called on 'deleted' event.
+	* can be overridden to handle relations
+	*/
+	public function destroyRelations() {}
+
+	/**
+	* sincronizza elementi che hanno una relazione many to many (belongsToMany)
+	*
+	* @param string $relation the relation method name as defined in the model (IE: authors)
+	* @param array $data the data to use to set the relations
+	**/
+	protected function setBelongsToMany($relationCallable = false, $data = array())
+	{
+		$attached = $this->$relationCallable()->get(); //models già associati
+		$attachableModelsSync = array(); //contiene i models da sincronizzare
+
+		foreach($data as $attachableModelInput)
+		{
+			$attachableModelID = isset($attachableModelInput['id']) ? $attachableModelInput['id'] : false;
+
+			$relatedInstance = $this->$relationCallable()->getRelated(); //instance of the related model
+
+			if( $attachableModel = $relatedInstance::find($attachableModelID) )
+			{
+				if($attached->contains($attachableModelID))
+					$this->$relationCallable()->detach($attachableModelID); //dissocio per assicurarmi di aggiornare i dati pivot
+
+				$pivotData = $attachableModelInput['pivot'] ?: array();
+				$attachableModelsSync[$attachableModelID] = $pivotData;
+			}
+		}
+		$this->$relationCallable()->sync($attachableModelsSync);
+	}
+
+	/**
+	* attach models with a hasMany or hasOne relation.
+	* it also detaches the models not sent with $data
+	*
+	* @param string $relation the relation method name as defined in the model (IE: authors)
+	* @param array $data the data to use to set the relations
+	**/
+	protected function setHasOneOrMany($relation = false, $data = array())
+	{
+		$attached = $this->$relation()->get(); //models già associati
+		$attachables = array(); //models che verranno associati
+
+		foreach($data as $attachableData)
+		{
+
+			$attachableID = isset($attachableData['id']) ? $attachableData['id'] : false;
+			$relatedInstance = $this->$relation()->getRelated(); //instance of the related model
+			if($attachable = $relatedInstance::find($attachableID))	$attachables[] = $attachable;
+		}
+		$this->$relation()->saveMany($attachables);
+
+		//detach related model not sent
+		$attached->each(function($item) use($relation, $attachables){
+			if( ! in_array($item, $attachables) ) $this->detachModel($relation, $item);
+		});
+	}
+
+	/**
+	* detach a model in a hasMany or hasOne relation
+	* @param string $relation the relation method name as defined in the model (IE: authors)
+	*/
+	protected function detachModel($relation = false, $related)
+	{
+		$foreignKey = $this->$relation()->getPlainForeignKey();
+		$related->setAttribute($foreignKey, 0);
+		return $related->save();
+	}
+
+	/**
+	* --- SCOPES
+	*/
 
 	/**
 	* ricerca parole separate da spazio tra i campi $searchable del model

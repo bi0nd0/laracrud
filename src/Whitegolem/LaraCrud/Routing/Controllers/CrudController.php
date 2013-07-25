@@ -215,6 +215,7 @@ class CrudController extends Controller {
 			$this->resultsKeySingular => $this->model
 		);
 
+		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
 		$this->layout->content = View::make("{$this->controllerName}.edit", $data);
 	}
@@ -252,12 +253,12 @@ class CrudController extends Controller {
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
 			$data['error'] = false;
-
+		//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
 			return \Response::json($data,200);
 		}
-
-
+		//use this hook to alter the data of the view
+		$beforeResponse = Event::fire('before.response', array(&$data));
 		return Redirect::route("{$this->controllerName}.edit", array($id))->with('success', $message);
 	}
 
@@ -337,65 +338,6 @@ class CrudController extends Controller {
 		return Redirect::back()->withInput()->withErrors($model->errors);
 	}
 
-	private function getRelationModelClass($relation = false)
-	{
-		return Str::studly(Str::singular($relation));
-	}
-
-	/**
-	* sincronizza elementi che hanno una relazione many to many (belongsToMany)
-	*
-	* @param string $relation the relation method name as defined in the model (IE: authors)
-	* @param array $data the data to use to set the relations
-	**/
-	protected function syncModels($relation = false, $data = array())
-	{
-		$attached = $this->model->$relation()->get(); //models già associati
-		$attachableModelsSync = array(); //contiene i models da sincronizzare
-
-		foreach($data as $attachableModelInput)
-		{
-			$attachableModelID = isset($attachableModelInput['id']) ? $attachableModelInput['id'] : false;
-
-			$relatedInstance = $this->model->$relation()->getRelated(); //instance of the related model
-
-			if( $attachableModel = $relatedInstance::find($attachableModelID) )
-			{
-				if($attached->contains($attachableModelID)) $this->model->$relation()->detach($attachableModelID); //dissocio per assicurarmi di aggiornare i dati pivot
-
-				$pivotData = $attachableModelInput['pivot'] ?: array();
-				$attachableModelsSync[$attachableModelID] = $pivotData;
-			}
-		}
-		$this->model->$relation()->sync($attachableModelsSync);
-	}
-
-	/**
-	* attach models with a hasMany or hasOne relation.
-	* it also detaches the models not sent with $data
-	*
-	* @param string $relation the relation method name as defined in the model (IE: authors)
-	* @param array $data the data to use to set the relations
-	**/
-	protected function attachModels($relation = false, $data = array())
-	{
-		$attached = $this->model->$relation()->get(); //models già associati
-		$attachables = array(); //models che verranno associati
-
-		foreach($data as $attachableData)
-		{
-
-			$attachableID = isset($attachableData['id']) ? $attachableData['id'] : false;
-			$relatedInstance = $this->model->$relation()->getRelated(); //instance of the related model
-			if($attachable = $relatedInstance::find($attachableID))	$attachables[] = $attachable;
-		}
-		$this->model->$relation()->saveMany($attachables);
-
-		//detach related model not sent
-		$attached->each(function($item) use($relation, $attachables){
-			if( ! in_array($item, $attachables) ) $this->detachModel($relation, $item);
-		});
-	}
 
 	/**
 	* attach a model with a hasMany or hasOne relation
@@ -408,18 +350,8 @@ class CrudController extends Controller {
 	{
 		$attachableID = isset($data['id']) ? $data['id'] : false;
 		$relatedInstance = $this->model->$relation()->getRelated(); //instance of the related model)
-		if($attachable = $relatedInstance::find($attachableID))	return $this->model->$relation()->save($attachable);
-	}
-
-	/**
-	* detach a model in a hasMany or hasOne relation
-	* @param string $relation the relation method name as defined in the model (IE: authors)
-	*/
-	protected function detachModel($relation = false, $related)
-	{
-		$foreignKey = $this->model->$relation()->getPlainForeignKey();
-		$related->setAttribute($foreignKey, 0);
-		return $related->save();
+		if($attachable = $relatedInstance::find($attachableID))
+			return $this->model->$relation()->save($attachable);
 	}
 
 }
