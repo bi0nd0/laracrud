@@ -11,7 +11,13 @@ class Crud extends Model{
 
 	protected static $rules = array();
 
-	protected static $searchable = array();
+	protected static $searchable = array(); //it's set by default to the content of $fillable
+
+	public function __construct()
+	{
+		// set the default searchable fields to the fillable array
+		 static::$searchable = static::$searchable ?: $this->getFillable();
+	}
 
 	public static function boot()
 	{
