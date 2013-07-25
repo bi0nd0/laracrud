@@ -11,13 +11,9 @@ class Crud extends Model{
 
 	protected static $rules = array();
 
-	protected static $searchable = array(); //it's set by default to the content of $fillable
+	protected static $searchable; //it's set by default to the content of $fillable (see scopeSearchAny)
 
-	public function __construct()
-	{
-		// set the default searchable fields to the fillable array
-		 static::$searchable = static::$searchable ?: $this->getFillable();
-	}
+
 
 	public static function boot()
 	{
@@ -182,13 +178,14 @@ class Crud extends Model{
 	public function scopeSearchAny($query,$queryString='')
     {
 		$words = explode(' ',$queryString);
+		// set the default searchable fields to the fillable array
+		$fields = isset(static::$searchable) ? static::$searchable : $this->getFillable();
 		foreach($words as $word)
 		{
 			if($word!='')
 			{
-				$query->where(function($query) use($word)
+				$query->where(function($query) use($word, $fields)
 				{
-					$fields = static::$searchable ?: array();
 					foreach($fields as $field){
 						$query->orWhere($field,'like',"%$word%");
 					}
