@@ -7,7 +7,7 @@
 * il pulsante deve avere i seguenti attributi:
 * - data-url lurl per il submit dei dati
 * - data-fields-selector la stringa usata per ritrovare l'elemento che contiene i campi del form (solitamente è un contenitore hidden)
-* - data-model-id (in caso di editing) TODO
+* - data-model-id (in caso di editing) TODO!
 *
 * struttura tipica:
 *	<div class="creation-wrapper">
