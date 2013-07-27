@@ -44,76 +44,76 @@ class CrudController extends Controller {
 		}
 	}
 
-
 	/**
-	 * Display a listing of the resource.
-	 *
-	 * Use the event hooks in the inheriting controller to alter the variables passed by reference
-	 *
-	 * For example to add default pagination in a controller:
-	 * Event::listen('before.query', function(&$parameters){
-	 *		if(!in_array('page', $parameters)) $parameters['page'] = 1;
-	 *	});
-	 *
-	 * @return Response
-	 */
-	public function index()
+	* helper function for index
+	* gets the result, the total and the paginator for the index action
+	*
+	* Use the event hooks in the inheriting controller to alter the variables passed by reference
+	*
+	* For example to add default pagination in a controller:
+	* Event::listen('before.query', function(&$parameters){
+	*		if(!in_array('page', $parameters)) $parameters['page'] = 1;
+	*	});
+	*
+	* @return array $data array with the keys $this->resultsKey, total, paginator
+	* 
+	*/
+	private function getIndexData()
 	{
-		$parameters = array(
-			'q' => Input::get('q'), //queryString
-			's' => Input::get('s'), //sortoptions
-			'page' => Input::get('page'), //pagination
-			'pp' => Input::get('pp'), //perpage
-		);
-
-		if(!$parameters['page'] && $this->paginate) $parameters['page'] = 1;
-
 		$this->model = new $this->modelName;
 
 		//use this hook to alter the parameters
 		$beforeQuery = Event::fire('before.query', array(&$parameters));
+
+		//search, sort
 		$query = $this->model
-					->searchAny($parameters['q'])
-					->sortBy($parameters['s']);
+					->searchAny(Input::get('q'))
+					->sortBy(Input::get('s'));
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
 
 		// pagination
-		if(isset($parameters['page']))
+		if(Input::get('page') || $this->paginate)
 		{
-			$perPage = $parameters['pp'] ?: $this->model->getPerPage();
+			$perPage = Input::get('pp') ?: $this->model->getPerPage();
 			$paginator = $query->paginate($perPage);
 
 			//preserve the url query in the paginator
-			$paginator->appends(array_except($parameters,'page'));
+			$paginator->appends(Input::except('page'));
 		}
 
-		$results = isset($paginator) ? $paginator->getCollection() : $query->get();
-		$total = isset($paginator) ? $paginator->getTotal() : $results->count();
+		$data = new \stdClass;
+		$data->{$this->resultsKey} = isset($paginator) ? $paginator->getCollection() : $query->get();
+		$data->total = isset($paginator) ? $paginator->getTotal() : $indexData->results->count();
+		$data->paginator = isset($paginator) ? $paginator : false;
 
-		//set the data for the view
-		$data = array(
-			'total' => $total,
-			$this->resultsKey => $results,
-		);
+		return (array) $data;
+	}
+
+
+	/**
+	 * Display a listing of the resource.
+	 *
+	 * @return Response
+	 */
+	public function index()
+	{
+		$data = $this->getIndexData();
 
 		if(Request::ajax())
 		{
-			$data['error'] = false;
-			$data[$this->resultsKey] = $results->toArray();
+			$data[$this->resultsKey] = $data[$this->resultsKey]->toArray();
+			unset($data['paginator']);
 
 			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
 			return \Response::json($data,200);
 		}
 
-		if(isset($paginator)) $data['paginator'] = $paginator;
-
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
 		$this->layout->content = View::make("{$this->controllerName}.index", $data);
-
 	}
 
 
@@ -151,7 +151,6 @@ class CrudController extends Controller {
 
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
-			$data['error'] = false;
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
 			return \Response::json($data,201);
@@ -183,7 +182,6 @@ class CrudController extends Controller {
 
 		if(Request::ajax())
 		{
-			$data['error'] = false;
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
@@ -252,7 +250,6 @@ class CrudController extends Controller {
 
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
-			$data['error'] = false;
 		//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
 			return \Response::json($data,200);
@@ -283,7 +280,6 @@ class CrudController extends Controller {
 		{
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
-			$data['error'] = false;
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
 			return \Response::json($data,200);
@@ -349,9 +345,85 @@ class CrudController extends Controller {
 	protected function attachModel($relation, $data)
 	{
 		$attachableID = isset($data['id']) ? $data['id'] : false;
-		$relatedInstance = $this->model->$relation()->getRelated(); //instance of the related model)
+		$methodInstance = $this->model->$relation()->getmethod(); //instance of the related model)
 		if($attachable = $relatedInstance::find($attachableID))
 			return $this->model->$relation()->save($attachable);
 	}
+
+	/**
+	* handles relation calls
+	* muset be specified a route this way:
+	*	Route::any('artworks/{id}/{related}', function($id,$related)
+	*	{
+	*    	...
+	*	})->where(array('id' => '[0-9]+', 'related' => '[a-z]+'));
+	*
+	*/
+	public function handleRelation($id,$method,$relatedID = null)
+	{
+		$model = $this->getModel($id);
+		if(!is_a($model->$method(),'Illuminate\Database\Eloquent\Relations\Relation'))
+			return $this->missingMethod(func_get_args());
+
+		if(method_exists($model, $method))
+		{
+			$spoofedMethods = array('DELETE', 'PATCH', 'PUT');
+			$spoofedMethod = Input::get('_method');
+			$requestMethod = Input::server('REQUEST_METHOD');
+
+			//get the verb of the request. detect spoofed methods
+			$verb = ($requestMethod=='POST' && in_array($spoofedMethod, $spoofedMethods)) ? $spoofedMethod : $requestMethod;
+
+			$relationController = new RelationController($model, $method);
+
+			switch($verb)
+			{
+				case 'GET':
+					return $relationController->index();
+					break;
+				case 'POST':
+				case 'PUT':
+					return $relationController->attach($id);
+					break;
+				case 'DELETE':
+					return $relationController->detach($id);
+					break;
+				default:
+					break;
+
+			}
+		}
+	}
+
+}
+
+class RelationController extends Controller {
+
+	protected $model;
+	protected $method;
+
+	public function __construct($model, $method)
+	{
+		$this->model = $model;
+		$this->method = $method;
+	}
+
+	public function index(){
+		$query = call_user_func(array($this->model,$this->method));
+		$results = $query->get();
+
+		$data = array(
+			'results' => $results->toArray(),
+			'total' => $results->count()
+		);
+		if(Request::ajax())
+		{
+			return \Response::json($data,200);
+		}
+		return $data;
+	}
+
+	public function attach($id){}
+	public function detach($id){}
 
 }
