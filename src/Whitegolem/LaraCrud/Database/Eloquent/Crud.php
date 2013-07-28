@@ -109,6 +109,8 @@ class Crud extends Model{
 	**/
 	protected function setBelongsToMany($relationCallable = false, $data = array())
 	{
+		if(!is_array($data)) return;
+
 		$attached = $this->$relationCallable()->get(); //models già associati
 		$attachableModelsSync = array(); //contiene i models da sincronizzare
 
@@ -122,8 +124,8 @@ class Crud extends Model{
 			{
 				if($attached->contains($attachableModelID))
 					$this->$relationCallable()->detach($attachableModelID); //dissocio per assicurarmi di aggiornare i dati pivot
-
-				$pivotData = $attachableModelInput['pivot'] ?: array();
+				
+				$pivotData = (isset($attachableModelInput['pivot'])) ? $attachableModelInput['pivot'] : array();
 				$attachableModelsSync[$attachableModelID] = $pivotData;
 			}
 		}
