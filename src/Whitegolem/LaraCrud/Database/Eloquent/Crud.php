@@ -75,8 +75,9 @@ class Crud extends Model{
 
 		foreach($keys as $key)
 		{
-			if (method_exists($this, $key)) {
+			if ( method_exists($this, $key) && is_a($this->$key(),'Illuminate\Database\Eloquent\Relations\Relation') ) {
 				$methodClass =  get_class($this->$key());
+
 				switch($methodClass)
 				{
 					case 'Illuminate\Database\Eloquent\Relations\BelongsToMany':
