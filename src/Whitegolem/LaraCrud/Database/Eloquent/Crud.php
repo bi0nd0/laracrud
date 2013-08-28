@@ -112,8 +112,10 @@ class Crud extends Model{
 	{
 		if(!is_array($data)) return;
 
-		$attached = $this->$relationCallable()->get(); //models già associati
-		$attachableModelsSync = array(); //contiene i models da sincronizzare
+		$relatedCollection = $this->$relationCallable()->get(); //Collection of attached models
+		$relatedIds = $relatedCollection->modelKeys(); //array of attached models ids
+		$newIds = array(); //lists the attached models ids
+
 
 		foreach($data as $attachableModelInput)
 		{
@@ -123,14 +125,18 @@ class Crud extends Model{
 
 			if( $attachableModel = $relatedInstance::find($attachableModelID) )
 			{
-				if($attached->contains($attachableModelID))
-					$this->$relationCallable()->detach($attachableModelID); //dissocio per assicurarmi di aggiornare i dati pivot
+				if($relatedCollection->contains($attachableModelID))
+					$this->$relationCallable()->detach($attachableModelID); //detach to update pivot data
 				
 				$pivotData = (isset($attachableModelInput['pivot'])) ? $attachableModelInput['pivot'] : array();
-				$attachableModelsSync[$attachableModelID] = $pivotData;
+				$this->$relationCallable()->attach($attachableModelID, $pivotData);
+
+				$newIds[] = $attachableModelID; //add the associated model id to the list
 			}
 		}
-		$this->$relationCallable()->sync($attachableModelsSync);
+		//remove the previously attached models 
+		$detachIds = array_diff($relatedIds, $newIds); //array of model ids to detach
+		if (count($detachIds) > 0) $this->$relationCallable()->detach($detachIds);
 	}
 
 	/**
