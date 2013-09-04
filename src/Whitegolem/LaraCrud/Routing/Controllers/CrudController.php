@@ -23,6 +23,8 @@ class CrudController extends Controller {
 
 	protected $paginate = false; //true to enable pagination by default
 
+	protected $callback = false; //callback function name for jsonp
+
 	public function __construct()
 	{
 		$this->controllerName = Str::lower(preg_replace('/Controller$/', '', get_class($this)));
@@ -91,6 +93,34 @@ class CrudController extends Controller {
 		return (array) $data;
 	}
 
+	/**
+	* checks wheter it's an ajax request or not
+	* in case of a jsonp request sets $this->callback to the name of the callback function
+	*/
+	protected function isAjaxRequest()
+	{
+		$this->callback = Input::get('callback', false);
+
+		return (Request::ajax() || $this->callback);
+	}
+
+	/**
+	* prints a json response.
+	* in case of a jsonp request wraps the json data with a callback function
+	*
+	* @param array $data the data to convert to json
+	* @param int $status the status code to return in the response
+	* @return json data
+	*/
+	protected function jsonResponse($data = array(), $status = 200)
+	{
+		$response = \Response::json($data,$status);
+
+		if($this->callback) $response = $response->setCallback($this->callback);
+
+		return $response;
+	}
+
 
 	/**
 	 * Display a listing of the resource.
@@ -100,20 +130,16 @@ class CrudController extends Controller {
 	public function index()
 	{
 		$data = $this->getIndexData();
-		$callback = Input::get('callback', false);
 
-		if(Request::ajax() || $callback)
+		if($this->isAjaxRequest())
 		{
 			$data[$this->resultsKey] = $data[$this->resultsKey]->toArray();
 			unset($data['paginator']);
 
 			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
-			$response = \Response::json($data,200);
 
-			if($callback) $response = $response->setCallback($callback);
-
-			return $response;
+			return $this->jsonResponse($data,200);
 		}
 
 		//use this hook to alter the data of the view
@@ -151,14 +177,14 @@ class CrudController extends Controller {
 		$message = 'nuovo elemento creato';
 		$data = array();
 
-		if(Request::ajax())
-		{	
-
+		if($this->isAjaxRequest())
+		{
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
-			return \Response::json($data,201);
+
+			return $this->jsonResponse($data,201);
 		}
 
 		return Redirect::route("{$this->controllerName}.edit", array($this->model->id))->with('success', $message);
@@ -185,18 +211,13 @@ class CrudController extends Controller {
 			$this->resultsKeySingular => $this->model
 		);
 
-		$callback = Input::get('callback', false);
-
-		if(Request::ajax() || $callback)
+		if($this->isAjaxRequest())
 		{
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
-			$response = \Response::json($data,200);
-
-			if($callback) $response = $response->setCallback($callback);
-
-			return $response;
+			
+			return $this->jsonResponse($data,200);
 		}
 
 		$beforeResponse = Event::fire('before.response', array(&$data));
@@ -256,20 +277,15 @@ class CrudController extends Controller {
 		$message = 'elemento aggiornato';
 		$data = array();
 
-		$callback = Input::get('callback', false);
-
-		if(Request::ajax() || $callback)
-		{	
-
+		if($this->isAjaxRequest())
+		{
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
-		//use this hook to alter the data of the view
+
+			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
-			$response = \Response::json($data,200);
-
-			if($callback) $response = $response->setCallback($callback);
-
-			return $response;
+			
+			return $this->jsonResponse($data,200);
 		}
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
@@ -293,19 +309,14 @@ class CrudController extends Controller {
 		$message = 'elemento eliminato';
 		$data = array();
 
-		$callback = Input::get('callback', false);
-
-		if(Request::ajax() || $callback)
+		if($this->isAjaxRequest())
 		{
 			$data[$this->resultsKeySingular] = $this->model->toArray();
 			$data['message'] = $message;
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
-			$response = \Response::json($data,200);
-
-			if($callback) $response = $response->setCallback($callback);
-
-			return $response;
+			
+			return $this->jsonResponse($data,200);
 		}
 		return Redirect::route("{$this->controllerName}.index")->with('success', $message);
 	}
@@ -335,15 +346,9 @@ class CrudController extends Controller {
 			'message' =>$message
 		);
 
-		$callback = Input::get('callback', false);
-
-		if(Request::ajax() || $callback)
+		if($this->isAjaxRequest())
 		{
-			$response = \Response::json($data,404);
-
-			if($callback) $response = $response->setCallback($callback);
-
-			return $response;
+			return $this->jsonResponse($data,404);
 		}
 		return Redirect::home()->with('error', $message);
 	}
@@ -362,16 +367,9 @@ class CrudController extends Controller {
 			'errors' => $model->errors->toArray()
 		);
 
-		$callback = Input::get('callback', false);
-
-		if(Request::ajax() || $callback)
+		if($this->isAjaxRequest())
 		{
-
-			$response = \Response::json($data,400);
-			
-			if($callback) $response = $response->setCallback($callback);
-
-			return $response;
+			return $this->jsonResponse($data,400);
 		}
 		return Redirect::back()->withInput()->withErrors($model->errors);
 	}
