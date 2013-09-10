@@ -182,6 +182,53 @@ class Crud extends Model{
 	*/
 
 	/**
+	* eager loads nested resources
+	*
+	* jQuery simple example:
+	*	$.ajax({
+	*		'url': 'http://bardi.dev/characters',
+	*		'type': 'GET',
+	*		'data': {
+	*			'with': 'documents'
+	*		}
+	*	})
+	*
+	* jQuery array example:
+	*	$.ajax({
+	*		'url': 'http://bardi.dev/characters',
+	*		'type': 'GET',
+	*		'data': {
+	*			'with': ['places',documents']
+	*		}
+	*	})
+	*
+	* URL simple example: http://bardi.dev/characters?with=documents
+	*
+	* URL array example: http://bardi.dev/characters?with[]=places&with[]=documents
+	*
+	*/
+	public function scopeEagerLoad($query, $relations=array())
+    {
+		if($relations) $query->with($relations);
+
+		return $query;
+	}
+
+	/**
+	* ricerca parole separate da spazio tra i campi $searchable del model
+	*/
+	public function scopeFilter($query,$filters=array())
+    {
+    	if(is_null($filters)) return $query;
+    	foreach($filters as $filter)
+    	{
+    		$query = call_user_func_array(array($query,'where'), $filter);
+    	}
+
+		return $query;
+	}
+
+	/**
 	* ricerca parole separate da spazio tra i campi $searchable del model
 	*/
 	public function scopeSearchAny($query,$queryString='')
