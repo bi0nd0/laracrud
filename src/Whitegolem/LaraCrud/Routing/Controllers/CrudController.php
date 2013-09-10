@@ -69,8 +69,11 @@ class CrudController extends Controller {
 
 		//search, sort
 		$query = $this->model
+					->eagerLoad(Input::get('with'))
+					->filter(Input::get('filter'))
 					->searchAny(Input::get('q'))
-					->sortBy(Input::get('s'));
+					->sortBy(Input::get('sort'));
+
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -392,21 +395,25 @@ class CrudController extends Controller {
 
 	/**
 	* handles relation calls
-	* muset be specified a route this way:
+	* must be specified a route like this:
 	*	Route::any('artworks/{id}/{related}', function($id,$related)
 	*	{
 	*    	...
 	*	})->where(array('id' => '[0-9]+', 'related' => '[a-z]+'));
 	*
 	*/
-	public function handleRelation($id,$method,$relatedID = null)
+	public function handleRelation($id,$relatedController,$relatedID = null)
 	{
-		$model = $this->getModel($id);
-		if(!is_a($model->$method(),'Illuminate\Database\Eloquent\Relations\Relation'))
-			return $this->missingMethod(func_get_args());
 
-		if(method_exists($model, $method))
+		$model = $this->getModel($id);
+
+		$controller = new $relatedController;
+		/*if(!is_a($model->$method(),'Illuminate\Database\Eloquent\Relations\Relation'))
+			return $this->missingMethod(func_get_args());*/
+
+		/*if(method_exists($model, $method))
 		{
+		}*/
 			$spoofedMethods = array('DELETE', 'PATCH', 'PUT');
 			$spoofedMethod = Input::get('_method');
 			$requestMethod = Input::server('REQUEST_METHOD');
@@ -419,7 +426,7 @@ class CrudController extends Controller {
 			switch($verb)
 			{
 				case 'GET':
-					return $relationController->index();
+					return $this->listRelated($model, $method);
 					break;
 				case 'POST':
 				case 'PUT':
@@ -432,7 +439,31 @@ class CrudController extends Controller {
 					break;
 
 			}
+	}
+
+	protected function listRelated($model, $method)
+	{
+		$related = $model->$method()->get();
+
+		$data = new \stdClass;
+		$data->total = $related->count();
+		$data->$method = $related;
+
+
+		if($this->isAjaxRequest())
+		{
+			$data[$method] = $data->$method->toArray();
+
+			//use this hook to alter the data of the view
+			$beforeResponse = Event::fire('before.response', array(&$data));
+
+			return $this->jsonResponse($data,200);
 		}
+		$data = (array) $data;
+
+		//use this hook to alter the data of the view
+		$beforeResponse = Event::fire('before.response', array(&$data));
+		$this->layout->content = View::make("places.index", $data);
 	}
 
 }
