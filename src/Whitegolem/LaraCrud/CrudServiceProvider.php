@@ -19,6 +19,9 @@ class CrudServiceProvider extends ServiceProvider {
 	public function boot()
 	{
 		$this->package('whitegolem/laracrud');
+
+		require_once('Routing/Controllers/CrudController.php');
+		require_once('Database/Eloquent/Crud.php');
 	}
 
 	/**
@@ -32,8 +35,7 @@ class CrudServiceProvider extends ServiceProvider {
 			return new CrudController;
 		});
 
-		require_once('Routing/Controllers/CrudController.php');
-		require_once('Database/Eloquent/Crud.php');
+		
 	}
 
 	/**
