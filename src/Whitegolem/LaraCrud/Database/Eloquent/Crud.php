@@ -217,12 +217,17 @@ class Crud extends Model{
 	/**
 	* ricerca parole separate da spazio tra i campi $searchable del model
 	*/
-	public function scopeFilter($query,$filters=array())
+	public function scopeFilterWhere($query,$filters=array())
     {
-    	if(is_null($filters)) return $query;
+    	if(!is_array($filters)) return $query;
+
+    	//manage single filter. transform it in array of arrays
+    	if( isset($filters[0]) && !is_array($filters[0]) ) $filters = array($filters);
+
     	foreach($filters as $filter)
     	{
     		$query = call_user_func_array(array($query,'where'), $filter);
+
     	}
 
 		return $query;

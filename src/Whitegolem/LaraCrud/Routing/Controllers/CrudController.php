@@ -70,7 +70,7 @@ class CrudController extends Controller {
 		//search, sort
 		$query = $this->model
 					->eagerLoad(Input::get('with'))
-					->filter(Input::get('filter'))
+					->filterWhere(Input::get('where'))
 					->searchAny(Input::get('q'))
 					->sortBy(Input::get('sort'));
 
@@ -78,8 +78,8 @@ class CrudController extends Controller {
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
 
-		// pagination
-		if(Input::get('page') || $this->paginate)
+		// pagination. do not paginate on ajax request
+		if( (Input::get('page') || $this->paginate) && !$this->isAjaxRequest() )
 		{
 			$perPage = Input::get('pp') ?: $this->model->getPerPage();
 			$paginator = $query->paginate($perPage);
@@ -90,7 +90,7 @@ class CrudController extends Controller {
 
 		$data = new \stdClass;
 		$data->{$this->resultsKey} = isset($paginator) ? $paginator->getCollection() : $query->get();
-		$data->total = isset($paginator) ? $paginator->getTotal() : $indexData->results->count();
+		$data->total = isset($paginator) ? $paginator->getTotal() : $data->{$this->resultsKey}->count();
 		$data->paginator = isset($paginator) ? $paginator : false;
 
 		return (array) $data;
