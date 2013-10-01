@@ -19,9 +19,8 @@ class CrudServiceProvider extends ServiceProvider {
 	public function boot()
 	{
 		$this->package('whitegolem/laracrud');
-
-		require_once('Routing/Controllers/CrudController.php');
-		require_once('Database/Eloquent/Crud.php');
+		
+		include __DIR__.'/../../filters.php'; //to load a filters file for my package
 	}
 
 	/**
