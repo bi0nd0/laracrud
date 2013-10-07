@@ -83,4 +83,10 @@ $.fn[pluginName] = function(options){
 	});
 };
 
+$(window).on('load', function () {
+	$('[data-delete-url]').each(function () {
+		var $dm = $.fn[pluginName].apply($(this),[{}]);
+	});
+});
+
 }( jQuery, window, document ));
