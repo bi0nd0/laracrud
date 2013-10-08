@@ -27,9 +27,9 @@ class CrudController extends Controller {
 
 	public function __construct()
 	{
-		$this->controllerName = Str::lower(preg_replace('/Controller$/', '', get_class($this)));
-		$this->modelName = Str::studly(Str::singular($this->controllerName));
-		$this->resultsKey = $this->controllerName;
+/*		$this->controllerName = Str::lower(preg_replace('/Controller$/', '', get_class($this)));
+		$this->modelName = Str::studly(Str::singular($this->controllerName));*/
+		$this->resultsKey = static::controllerName();
 		$this->resultsKeySingular = Str::singular($this->resultsKey);
 	}
 
@@ -46,6 +46,49 @@ class CrudController extends Controller {
 		}
 	}
 
+	protected static function controllerName()
+	{
+		return Str::lower(preg_replace('/Controller$/', '', get_called_class()));
+	}
+
+	protected static function modelName()
+	{
+		return Str::studly(Str::singular(static::controllerName()));
+	}
+
+	protected static function modelInstance($input=array())
+	{
+		$modelName = Str::studly(Str::singular(static::controllerName()));
+		$model = new $modelName($input);
+
+		return $model;
+	}
+
+	private function applyParams($model = null)
+	{
+
+		if(!$model) $model = static::modelInstance();
+
+		//search, sort
+		$query = $model
+					->eagerLoad(Input::get('with'))
+					->filterWhere(Input::get('where'))
+					->searchAny(Input::get('q'))
+					->sortBy(Input::get('sort'));
+
+		$paginator = false;
+
+		if( (Input::get('page') || $this->paginate) )
+		{
+			$perPage = Input::get('pp') ?: $model->getPerPage();
+			$paginator = $query->paginate($perPage);
+
+			//preserve the url query in the paginator
+			$paginator->appends(Input::except('page'));
+		}
+		return array($query,$paginator);
+		dd($query->get());
+	}
 	/**
 	* helper function for index
 	* gets the result, the total and the paginator for the index action
@@ -62,7 +105,7 @@ class CrudController extends Controller {
 	*/
 	private function getIndexData()
 	{
-		$this->model = new $this->modelName;
+		$this->model = static::modelInstance();
 
 		//use this hook to alter the parameters
 		$beforeQuery = Event::fire('before.query', array(&$parameters));
@@ -147,7 +190,9 @@ class CrudController extends Controller {
 
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
-		$this->layout->content = View::make("{$this->controllerName}.index", $data);
+		
+		$routeName = static::controllerName().".index";
+		$this->layout->content = View::make($routeName, $data);
 	}
 
 
@@ -160,7 +205,8 @@ class CrudController extends Controller {
 	{
 		$beforeResponse = Event::fire('before.response', array());
 
-		$this->layout->content = View::make("{$this->controllerName}.create");
+		$routeName = static::controllerName().".create";
+		$this->layout->content = View::make($routeName);
 	}
 
 	/**
@@ -172,7 +218,7 @@ class CrudController extends Controller {
 	{
 		$input = Input::all();
 		
-		$this->model = new $this->modelName($input);
+		$this->model = static::modelInstance($input);
 
 		//controlla se ci sono problemi durante il salvataggio
 		if(! $this->model->save() ) return $this->savingError($this->model);
@@ -190,7 +236,8 @@ class CrudController extends Controller {
 			return $this->jsonResponse($data,201);
 		}
 
-		return Redirect::route("{$this->controllerName}.edit", array($this->model->id))->with('success', $message);
+		$routeName = static::controllerName().".edit";
+		return Redirect::route($routeName, array($this->model->id))->with('success', $message);
 	}
 
 	/**
@@ -201,7 +248,7 @@ class CrudController extends Controller {
 	 */
 	public function show($id)
 	{
-		$query = call_user_func(array($this->modelName, 'query'));
+		$query = static::modelInstance()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -224,7 +271,9 @@ class CrudController extends Controller {
 		}
 
 		$beforeResponse = Event::fire('before.response', array(&$data));
-		$this->layout->content = View::make("{$this->controllerName}.show", $data);
+
+		$routeName = static::controllerName().".show";
+		$this->layout->content = View::make($routeName, $data);
 	}
 
 	/**
@@ -235,7 +284,7 @@ class CrudController extends Controller {
 	 */
 	public function edit($id)
 	{
-		$query = call_user_func(array($this->modelName, 'query'));
+		$query = static::modelInstance()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -250,7 +299,9 @@ class CrudController extends Controller {
 
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
-		$this->layout->content = View::make("{$this->controllerName}.edit", $data);
+
+		$routeName = static::controllerName().".edit";
+		$this->layout->content = View::make($routeName, $data);
 	}
 
 	/**
@@ -261,7 +312,7 @@ class CrudController extends Controller {
 	 */
 	public function update($id)
 	{
-		$query = call_user_func(array($this->modelName, 'query'));
+		$query = static::modelInstance()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -292,7 +343,9 @@ class CrudController extends Controller {
 		}
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
-		return Redirect::route("{$this->controllerName}.edit", array($id))->with('success', $message);
+
+		$routeName = static::controllerName().".edit";
+		return Redirect::route($routeName, array($id))->with('success', $message);
 	}
 
 	/**
@@ -321,18 +374,20 @@ class CrudController extends Controller {
 			
 			return $this->jsonResponse($data,200);
 		}
-		return Redirect::route("{$this->controllerName}.index")->with('success', $message);
+
+		$routeName = static::controllerName().".index";
+		return Redirect::route($routeName)->with('success', $message);
 	}
 
 	protected function getModel($id = null)
 	{
-		if(is_null($id)) return new $this->modelName;
+		$model = static::modelInstance();
 
-		$model = call_user_func_array( array($this->modelName, 'find'), array($id) );
+		if(is_null($id)) return $model;
 
-		if(is_null($model)) return $this->modelNotFoundError();
+		if($model = $model->find($id)) return $model;
 
-		return $model;
+		return $this->modelNotFoundError();
 
 	}
 
@@ -426,7 +481,7 @@ class CrudController extends Controller {
 			switch($verb)
 			{
 				case 'GET':
-					return $this->listRelated($model, $method);
+					return $this->related($id, $method);
 					break;
 				case 'POST':
 				case 'PUT':
@@ -437,33 +492,57 @@ class CrudController extends Controller {
 					break;
 				default:
 					break;
-
 			}
 	}
 
-	protected function listRelated($model, $method)
+	/**
+	* lists the relations of a model
+	*/
+	public function related($id, $view=null)
 	{
-		$related = $model->$method()->get();
+		$model = $this->getModel($id);
+
+		$query = $this->applyParams($model);
+		
+		$requestSegments = Request::segments();
+		$method = array_pop($requestSegments);
+
+		// check if the method is a valid relation
+		if ( !method_exists($model, $method) || !is_a($model->$method(),'Illuminate\Database\Eloquent\Relations\Relation') )
+			$this->missingMethod($args = func_get_args());
+
+		//set the view to use in the response
+		if(!$view)
+		{
+			$view = "$method.index"; 
+			if($method == Str::singular($method)) $view = "$method.show";
+		}
+
+		// get the related items
+		$related = call_user_func(array($model, $method))->get();
 
 		$data = new \stdClass;
 		$data->total = $related->count();
 		$data->$method = $related;
 
+		$data = (array) $data;
 
 		if($this->isAjaxRequest())
 		{
-			$data[$method] = $data->$method->toArray();
+			$data[$method] = $data[$method]->toArray();
 
 			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
 
 			return $this->jsonResponse($data,200);
 		}
-		$data = (array) $data;
 
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
-		$this->layout->content = View::make("places.index", $data);
+		$this->layout->content = View::make($view, $data);
+		
+
+		$this->modelNotFoundError();
 	}
 
 }
