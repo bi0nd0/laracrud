@@ -454,8 +454,11 @@ class CrudController extends Controller {
 	}
 
 	/**
-	* lists the relations of a model
-	*/
+	 * Display a listing of the related resource.
+	 *
+	 * @return Response
+	 * @param  int  $id
+	 */
 	public function relatedIndex($id, $viewPath=null)
 	{
 		$method = $this->getRelatedMethod();
@@ -495,6 +498,54 @@ class CrudController extends Controller {
 		$this->layout->content = View::make($viewPath, $data);
 	}
 
+	/**
+	 * Display the specified related resource.
+	 *
+	 * @param  int  $id
+	 * @param  int  $relatedId
+	 * @return Response
+	 */
+	public function relatedShow($id,$relatedId)
+	{}
+
+	/**
+	 * set belongsTo
+	 */
+	public function relatedAssociate($id,$relatedId)
+	{
+		$method = $this->getRelatedMethod();
+		$relatedModel = $this->getRelatedModel();
+
+
+		if( $related = $relatedModel->find($relatedId) )
+		{
+			$model = $this->getModel($id);
+
+
+			$model->$method()->associate($related);
+
+			if(! $model->save() ) return $this->savingError($model);
+			
+			$message = 'relazione salvata';
+
+			if($this->isAjaxRequest())
+			{
+				$data = array();
+				$data[$method] = $related->toArray();
+				$data['message'] = $message;
+				
+				return $this->jsonResponse($data,200);
+			}
+
+			$viewPath = $this->buildViewPath("index");
+			return Redirect::route($viewPath)->with('success', $message);
+		}
+		return $this->modelNotFoundError();
+	}
+
+	/**
+	 * set belongsToMany
+	 */
 	public function relatedAttach($id,$relatedId)
 	{
 		$method = $this->getRelatedMethod();
@@ -527,7 +578,16 @@ class CrudController extends Controller {
 		}
 		return $this->modelNotFoundError();
 	}
+	
+	/**
+	 * updates pivot data in belongsToMany
+	 */
+	public function relatedUpdate($id,$relatedId)
+	{}
 
+	/**
+	 * unset belongsToMany
+	 */
 	public function relatedDetach($id,$relatedId)
 	{
 		$method = $this->getRelatedMethod();
