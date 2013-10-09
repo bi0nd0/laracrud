@@ -11,24 +11,19 @@ use Illuminate\Support\Facades\Redirect;
 
 class CrudController extends Controller {
 
-	private $controllerName;
+	protected $modelName;
 
-	private $modelName;
+	protected $viewsBase;
 
 	private $resultsKey;
 
 	private $resultsKeySingular;
-	
-	protected $model;
 
 	protected $paginate = false; //true to enable pagination by default
 
-	protected $callback = false; //callback function name for jsonp
-
 	public function __construct()
 	{
-/*		$this->controllerName = Str::lower(preg_replace('/Controller$/', '', get_class($this)));
-		$this->modelName = Str::studly(Str::singular($this->controllerName));*/
+		$this->modelName = $this->modelName ?: Str::studly(Str::singular(static::controllerName()));
 		$this->resultsKey = static::controllerName();
 		$this->resultsKeySingular = Str::singular($this->resultsKey);
 	}
@@ -46,142 +41,151 @@ class CrudController extends Controller {
 		}
 	}
 
-	protected static function controllerName()
+	private static function controllerName()
 	{
 		return Str::lower(preg_replace('/Controller$/', '', get_called_class()));
 	}
 
-	protected static function modelName()
+	/**
+	 * get an instance of the model associated with the controller
+	 *
+	 */
+	private function modelInstance($input=array())
 	{
-		return Str::studly(Str::singular(static::controllerName()));
-	}
-
-	protected static function modelInstance($input=array())
-	{
-		$modelName = Str::studly(Str::singular(static::controllerName()));
+		$modelName = $this->modelName;
 		$model = new $modelName($input);
 
 		return $model;
 	}
 
-	private function applyParams($model = null)
+	/**
+	 * builds the path of the view starting from a base (usually the controller name IE the plural form of the model)
+	 *
+	 * @param $array one or more views to concatenate
+	 * @return string the path of the view
+	 */
+	private function buildViewPath($views=array(), $base=null)
+	{
+		if(is_null($base))
+			$base = $this->viewsBase ?: static::controllerName();
+		if(!is_array($views)) $views = array($views);
+		array_unshift($views, $base);
+		$path = implode('.', $views);
+		return $path;
+	}
+
+	/**
+	* apply the request params to the query
+	*
+	* @param mixed $object Model/Relation a model query or a relation to be filtered
+	* @return array a modified query and eventually a Paginator
+	*/
+	protected function applyParams($object = null)
 	{
 
-		if(!$model) $model = static::modelInstance();
+		if(!$object) $object = $this->modelInstance();
 
 		//search, sort
-		$query = $model
+		$query = $object
 					->eagerLoad(Input::get('with'))
 					->filterWhere(Input::get('where'))
 					->searchAny(Input::get('q'))
 					->sortBy(Input::get('sort'));
 
-		$paginator = false;
+		$paginator = null;
 
 		if( (Input::get('page') || $this->paginate) )
 		{
+			//check if $object is a model or a relation
+			$model = method_exists($object, 'getRelated') ? $object->getRelated() : $object;
+
 			$perPage = Input::get('pp') ?: $model->getPerPage();
 			$paginator = $query->paginate($perPage);
 
 			//preserve the url query in the paginator
 			$paginator->appends(Input::except('page'));
 		}
+
 		return array($query,$paginator);
-		dd($query->get());
-	}
-	/**
-	* helper function for index
-	* gets the result, the total and the paginator for the index action
-	*
-	* Use the event hooks in the inheriting controller to alter the variables passed by reference
-	*
-	* For example to add default pagination in a controller:
-	* Event::listen('before.query', function(&$parameters){
-	*		if(!in_array('page', $parameters)) $parameters['page'] = 1;
-	*	});
-	*
-	* @return array $data array with the keys $this->resultsKey, total, paginator
-	* 
-	*/
-	private function getIndexData()
-	{
-		$this->model = static::modelInstance();
-
-		//use this hook to alter the parameters
-		$beforeQuery = Event::fire('before.query', array(&$parameters));
-
-		//search, sort
-		$query = $this->model
-					->eagerLoad(Input::get('with'))
-					->filterWhere(Input::get('where'))
-					->searchAny(Input::get('q'))
-					->sortBy(Input::get('sort'));
-
-
-		//use this hook to alter the query
-		$beforeResults = Event::fire('before.results', array(&$query));
-
-		// pagination. do not paginate on ajax request
-		if( (Input::get('page') || $this->paginate) && !$this->isAjaxRequest() )
-		{
-			$perPage = Input::get('pp') ?: $this->model->getPerPage();
-			$paginator = $query->paginate($perPage);
-
-			//preserve the url query in the paginator
-			$paginator->appends(Input::except('page'));
-		}
-
-		$data = new \stdClass;
-		$data->{$this->resultsKey} = isset($paginator) ? $paginator->getCollection() : $query->get();
-		$data->total = isset($paginator) ? $paginator->getTotal() : $data->{$this->resultsKey}->count();
-		$data->paginator = isset($paginator) ? $paginator : false;
-
-		return (array) $data;
 	}
 
 	/**
-	* checks wheter it's an ajax request or not
-	* in case of a jsonp request sets $this->callback to the name of the callback function
-	*/
+	 * checks wheter it's an ajax request or not
+	 * in case of a jsonp request sets $callback to the name of the callback function
+	 */
 	protected function isAjaxRequest()
 	{
-		$this->callback = Input::get('callback', false);
+		$callback = Input::get('callback', false);
 
-		return (Request::ajax() || $this->callback);
+		return (Request::ajax() || $callback);
 	}
 
 	/**
-	* prints a json response.
-	* in case of a jsonp request wraps the json data with a callback function
-	*
-	* @param array $data the data to convert to json
-	* @param int $status the status code to return in the response
-	* @return json data
-	*/
+	 * prints a json response.
+	 * in case of a jsonp request wraps the json data with a callback function
+	 *
+	 * @param array $data the data to convert to json
+	 * @param int $status the status code to return in the response
+	 * @return json data
+	 */
 	protected function jsonResponse($data = array(), $status = 200)
 	{
 		$response = \Response::json($data,$status);
 
-		if($this->callback) $response = $response->setCallback($this->callback);
+		if($callback = Input::get('callback')) $response = $response->setCallback($callback);
 
 		return $response;
 	}
 
+	/**
+	 * get an array of data to use in the response
+	 * @param Query $query the query to use to retrieve the data
+	 * @param Paginator $paginator
+	 * @param array $additionalData an associative array of data to merge with the data array
+	 */
+	protected function getData($query,$paginator=null, $additionalData = array())
+	{
+		$results = isset($paginator) ? $paginator->getCollection() : $query->get();
+
+		$data = array();
+		$data[$this->resultsKey] = ($this->isAjaxRequest()) ? $results->toArray() : $results;
+		$data['total'] = isset($paginator) ? $paginator->getTotal() : $data->{$this->resultsKey}->count();
+		if($paginator) $data['paginator'] = $paginator;
+
+		if(is_array($additionalData)) $data = array_merge($data, $additionalData);
+
+		return $data;
+	}
 
 	/**
 	 * Display a listing of the resource.
+	 *
+	 * Use the event hooks in the inheriting controller to alter the variables passed by reference
+	 *
+	 * For example to add default pagination in a controller:
+	 * Event::listen('before.query', function(&$parameters){
+	 *		if(!in_array('page', $parameters)) $parameters['page'] = 1;
+	 *	});
+	 *
 	 *
 	 * @return Response
 	 */
 	public function index()
 	{
-		$data = $this->getIndexData();
+		$model = $this->modelInstance();
+
+		//use this hook to alter the parameters
+		$beforeQuery = Event::fire('before.query', array(&$parameters));
+
+		list($query,$paginator) = $this->applyParams($model);
+
+		//use this hook to alter the query
+		$beforeResults = Event::fire('before.results', array(&$query));
+
+		$data = $this->getData($query,$paginator);
 
 		if($this->isAjaxRequest())
 		{
-			$data[$this->resultsKey] = $data[$this->resultsKey]->toArray();
-			unset($data['paginator']);
-
 			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
 
@@ -191,8 +195,8 @@ class CrudController extends Controller {
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
 		
-		$routeName = static::controllerName().".index";
-		$this->layout->content = View::make($routeName, $data);
+		$viewPath = $this->buildViewPath("index");
+		$this->layout->content = View::make($viewPath, $data);
 	}
 
 
@@ -204,9 +208,10 @@ class CrudController extends Controller {
 	public function create()
 	{
 		$beforeResponse = Event::fire('before.response', array());
+		$this->buildViewPath("create");
 
-		$routeName = static::controllerName().".create";
-		$this->layout->content = View::make($routeName);
+		$viewPath = $this->buildViewPath("create");
+		$this->layout->content = View::make($viewPath);
 	}
 
 	/**
@@ -218,17 +223,17 @@ class CrudController extends Controller {
 	{
 		$input = Input::all();
 		
-		$this->model = static::modelInstance($input);
+		$model = $this->modelInstance($input);
 
 		//controlla se ci sono problemi durante il salvataggio
-		if(! $this->model->save() ) return $this->savingError($this->model);
+		if(! $model->save() ) return $this->savingError($model);
 
 		$message = 'nuovo elemento creato';
-		$data = array();
 
 		if($this->isAjaxRequest())
 		{
-			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data = array();
+			$data[$this->resultsKeySingular] = $model->toArray();
 			$data['message'] = $message;
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
@@ -236,8 +241,8 @@ class CrudController extends Controller {
 			return $this->jsonResponse($data,201);
 		}
 
-		$routeName = static::controllerName().".edit";
-		return Redirect::route($routeName, array($this->model->id))->with('success', $message);
+		$viewPath = $this->buildViewPath("edit");
+		return Redirect::route($viewPath, array($model->id))->with('success', $message);
 	}
 
 	/**
@@ -248,22 +253,22 @@ class CrudController extends Controller {
 	 */
 	public function show($id)
 	{
-		$query = static::modelInstance()->query();
+		$query = $this->modelInstance()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
 
-		$this->model = $query->find($id);
+		$model = $query->find($id);
 
-		if(is_null($this->model)) return $this->modelNotFoundError();
+		if(is_null($model)) return $this->modelNotFoundError();
 
 		$data = array(
-			$this->resultsKeySingular => $this->model
+			$this->resultsKeySingular => $model
 		);
 
 		if($this->isAjaxRequest())
 		{
-			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data[$this->resultsKeySingular] = $model->toArray();
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
 			
@@ -272,8 +277,8 @@ class CrudController extends Controller {
 
 		$beforeResponse = Event::fire('before.response', array(&$data));
 
-		$routeName = static::controllerName().".show";
-		$this->layout->content = View::make($routeName, $data);
+		$viewPath = $this->buildViewPath("show");
+		$this->layout->content = View::make($viewPath, $data);
 	}
 
 	/**
@@ -284,24 +289,24 @@ class CrudController extends Controller {
 	 */
 	public function edit($id)
 	{
-		$query = static::modelInstance()->query();
+		$query = $this->modelInstance()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
 
-		$this->model = $query->find($id);
+		$model = $query->find($id);
 
-		if(is_null($this->model)) return $this->modelNotFoundError();
+		if(is_null($model)) return $this->modelNotFoundError();
 
 		$data = array(
-			$this->resultsKeySingular => $this->model
+			$this->resultsKeySingular => $model
 		);
 
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
 
-		$routeName = static::controllerName().".edit";
-		$this->layout->content = View::make($routeName, $data);
+		$viewPath = $this->buildViewPath("edit");
+		$this->layout->content = View::make($viewPath, $data);
 	}
 
 	/**
@@ -312,28 +317,28 @@ class CrudController extends Controller {
 	 */
 	public function update($id)
 	{
-		$query = static::modelInstance()->query();
+		$query = $this->modelInstance()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
 
-		$this->model = $query->find($id);
+		$model = $query->find($id);
 
 		//se l'elemento non è presente creane uno nuovo
-		if(is_null($this->model)) return $this->store();
+		if(is_null($model)) return $this->store();
 
 		$input = Input::all();
-		$this->model->fill($input);
+		$model->fill($input);
 
 		//controlla se ci sono problemi durante il salvataggio
-		if(! $this->model->save() ) return $this->savingError($this->model);
+		if(! $model->save() ) return $this->savingError($model);
 
 		$message = 'elemento aggiornato';
-		$data = array();
 
 		if($this->isAjaxRequest())
 		{
-			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data = array();
+			$data[$this->resultsKeySingular] = $model->toArray();
 			$data['message'] = $message;
 
 			//use this hook to alter the data of the view
@@ -341,11 +346,9 @@ class CrudController extends Controller {
 			
 			return $this->jsonResponse($data,200);
 		}
-		//use this hook to alter the data of the view
-		$beforeResponse = Event::fire('before.response', array(&$data));
 
-		$routeName = static::controllerName().".edit";
-		return Redirect::route($routeName, array($id))->with('success', $message);
+		$viewPath = $this->buildViewPath("edit");
+		return Redirect::route($viewPath, array($id))->with('success', $message);
 	}
 
 	/**
@@ -356,18 +359,18 @@ class CrudController extends Controller {
 	 */
 	public function destroy($id)
 	{
-		$this->model = $this->getModel($id);
+		$model = $this->getModel($id);
 
-		$this->model->delete();
+		$model->delete();
 
 		$event = Event::fire('before.response', array());
 
 		$message = 'elemento eliminato';
-		$data = array();
 
 		if($this->isAjaxRequest())
 		{
-			$data[$this->resultsKeySingular] = $this->model->toArray();
+			$data = array();
+			$data[$this->resultsKeySingular] = $model->toArray();
 			$data['message'] = $message;
 
 			$beforeResponse = Event::fire('before.response', array(&$data));
@@ -375,17 +378,13 @@ class CrudController extends Controller {
 			return $this->jsonResponse($data,200);
 		}
 
-		$routeName = static::controllerName().".index";
-		return Redirect::route($routeName)->with('success', $message);
+		$viewPath = $this->buildViewPath("index");
+		return Redirect::route($viewPath)->with('success', $message);
 	}
 
 	protected function getModel($id = null)
 	{
-		$model = static::modelInstance();
-
-		if(is_null($id)) return $model;
-
-		if($model = $model->find($id)) return $model;
+		if($model = $this->modelInstance()->find($id)) return $model;
 
 		return $this->modelNotFoundError();
 
@@ -434,102 +433,56 @@ class CrudController extends Controller {
 
 
 	/**
-	* attach a model with a hasMany or hasOne relation
-	*
-	* @param string $relation the relation method name as defined in the model (IE: authors)
-	* @param array $data the data to use to set the relation
-	* @return mixed the attached Model or false if cannot save the relation
-	**/
-	protected function attachModel($relation, $data)
+	 *
+	 * ---- RELATIONS ----
+	 *
+	 */
+
+	private function getRelatedMethod()
 	{
-		$attachableID = isset($data['id']) ? $data['id'] : false;
-		$methodInstance = $this->model->$relation()->getmethod(); //instance of the related model)
-		if($attachable = $relatedInstance::find($attachableID))
-			return $this->model->$relation()->save($attachable);
+		$requestSegments = Request::segments();
+		if(isset($requestSegments[2])) return $requestSegments[2];
+
+		return null;
 	}
-
-	/**
-	* handles relation calls
-	* must be specified a route like this:
-	*	Route::any('artworks/{id}/{related}', function($id,$related)
-	*	{
-	*    	...
-	*	})->where(array('id' => '[0-9]+', 'related' => '[a-z]+'));
-	*
-	*/
-	public function handleRelation($id,$relatedController,$relatedID = null)
+	private function getRelatedModel()
 	{
-
-		$model = $this->getModel($id);
-
-		$controller = new $relatedController;
-		/*if(!is_a($model->$method(),'Illuminate\Database\Eloquent\Relations\Relation'))
-			return $this->missingMethod(func_get_args());*/
-
-		/*if(method_exists($model, $method))
-		{
-		}*/
-			$spoofedMethods = array('DELETE', 'PATCH', 'PUT');
-			$spoofedMethod = Input::get('_method');
-			$requestMethod = Input::server('REQUEST_METHOD');
-
-			//get the verb of the request. detect spoofed methods
-			$verb = ($requestMethod=='POST' && in_array($spoofedMethod, $spoofedMethods)) ? $spoofedMethod : $requestMethod;
-
-			$relationController = new RelationController($model, $method);
-
-			switch($verb)
-			{
-				case 'GET':
-					return $this->related($id, $method);
-					break;
-				case 'POST':
-				case 'PUT':
-					return $relationController->attach($id);
-					break;
-				case 'DELETE':
-					return $relationController->detach($id);
-					break;
-				default:
-					break;
-			}
+		$method = $this->getRelatedMethod();
+		$model = $this->modelInstance();
+		$relation = $model->$method();
+		return $relation->getRelated();
 	}
 
 	/**
 	* lists the relations of a model
 	*/
-	public function related($id, $view=null)
+	public function relatedIndex($id, $viewPath=null)
 	{
+		$method = $this->getRelatedMethod();
+
 		$model = $this->getModel($id);
 
-		$query = $this->applyParams($model);
-		
-		$requestSegments = Request::segments();
-		$method = array_pop($requestSegments);
-
-		// check if the method is a valid relation
-		if ( !method_exists($model, $method) || !is_a($model->$method(),'Illuminate\Database\Eloquent\Relations\Relation') )
-			$this->missingMethod($args = func_get_args());
-
 		//set the view to use in the response
-		if(!$view)
+		if(!$viewPath)
 		{
-			$view = "$method.index"; 
-			if($method == Str::singular($method)) $view = "$method.show";
+			$viewPath = $this->buildViewPath("index",$method); 
+			if($method == Str::singular($method)) $viewPath = $this->buildViewPath("show",$method);
 		}
 
+		$relation = call_user_func(array($model, $method));
+		list($query, $paginator) = $this->applyParams($relation);
+
 		// get the related items
-		$related = call_user_func(array($model, $method))->get();
+		$related = isset($paginator) ? $paginator->getCollection() : $query->get();
 
-		$data = new \stdClass;
-		$data->total = $related->count();
-		$data->$method = $related;
-
-		$data = (array) $data;
+		$data = array();
+		$data[$method] = $related;
+		$data['total'] = ($paginator) ? $paginator->getTotal() : $related->count();
+		if($paginator) $data['paginator'] = $paginator;
 
 		if($this->isAjaxRequest())
 		{
-			$data[$method] = $data[$method]->toArray();
+			$data[$method] = $related->toArray();
 
 			//use this hook to alter the data of the view
 			$beforeResponse = Event::fire('before.response', array(&$data));
@@ -539,41 +492,67 @@ class CrudController extends Controller {
 
 		//use this hook to alter the data of the view
 		$beforeResponse = Event::fire('before.response', array(&$data));
-		$this->layout->content = View::make($view, $data);
-		
-
-		$this->modelNotFoundError();
+		$this->layout->content = View::make($viewPath, $data);
 	}
 
-}
-
-class RelationController extends Controller {
-
-	protected $model;
-	protected $method;
-
-	public function __construct($model, $method)
+	public function relatedAttach($id,$relatedId)
 	{
-		$this->model = $model;
-		$this->method = $method;
-	}
+		$method = $this->getRelatedMethod();
+		$relatedModel = $this->getRelatedModel();
 
-	public function index(){
-		$query = call_user_func(array($this->model,$this->method));
-		$results = $query->get();
 
-		$data = array(
-			'results' => $results->toArray(),
-			'total' => $results->count()
-		);
-		if(Request::ajax())
+
+		if( $related = $relatedModel->find($relatedId) )
 		{
-			return \Response::json($data,200);
+			$model = $this->getModel($id);
+			$pivotData = Input::get('pivot', array());
+			if(!is_array($pivotData)) $pivotData = (array)$pivotData;
+
+			$model->$method()->detach($relatedId); //detach first to avoid duplicates
+			$model->$method()->attach($relatedId, $pivotData);
+			
+			$message = 'relazione salvata';
+
+			if($this->isAjaxRequest())
+			{
+				$data = array();
+				$data[$method] = $related->toArray();
+				$data['message'] = $message;
+				
+				return $this->jsonResponse($data,200);
+			}
+
+			$viewPath = $this->buildViewPath("index");
+			return Redirect::route($viewPath)->with('success', $message);
 		}
-		return $data;
+		return $this->modelNotFoundError();
 	}
 
-	public function attach($id){}
-	public function detach($id){}
+	public function relatedDetach($id,$relatedId)
+	{
+		$method = $this->getRelatedMethod();
+
+		$model = $this->getModel($id);
+
+		if( $related = $model->$method()->get()->find($relatedId) )
+		{
+			$model->$method()->detach($relatedId);
+			
+			$message = 'relazione eliminata';
+
+			if($this->isAjaxRequest())
+			{
+				$data = array();
+				$data[$method] = $related->toArray();
+				$data['message'] = $message;
+				
+				return $this->jsonResponse($data,200);
+			}
+
+			$viewPath = $this->buildViewPath("index");
+			return Redirect::route($viewPath)->with('success', $message);
+		}
+		return $this->modelNotFoundError();
+	}
 
 }
