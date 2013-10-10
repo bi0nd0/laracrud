@@ -92,10 +92,13 @@ class CrudController extends Controller {
 					->searchAny(Input::get('q'))
 					->sortBy(Input::get('sort'));
 
+		//use this hook to alter the parameters
 		$paginator = null;
 
 		if( (Input::get('page') || $this->paginate) )
 		{
+			$beforePagination = Event::fire('before.pagination', array(&$query));
+
 			//check if $object is a model or a relation
 			$model = method_exists($object, 'getRelated') ? $object->getRelated() : $object;
 
@@ -183,7 +186,6 @@ class CrudController extends Controller {
 		$beforeResults = Event::fire('before.results', array(&$query));
 
 		$data = $this->getData($query,$paginator);
-
 		if($this->isAjaxRequest())
 		{
 			//use this hook to alter the data of the view
