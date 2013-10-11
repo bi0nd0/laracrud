@@ -13,7 +13,7 @@ class CrudController extends Controller {
 
 	protected $modelName;
 
-	protected $viewsBase;
+	protected $viewsBasePath;
 
 	private $resultsKey;
 
@@ -24,8 +24,18 @@ class CrudController extends Controller {
 	public function __construct()
 	{
 		$this->modelName = $this->modelName ?: Str::studly(Str::singular(static::controllerName()));
+		$this->viewsBasePath = $this->viewsBasePath ?: $this->setViewsBasePath();
 		$this->resultsKey = static::controllerName();
 		$this->resultsKeySingular = Str::singular($this->resultsKey);
+	}
+
+	private function setViewsBasePath()
+	{
+		$classNameParts = explode('\\', get_called_class());
+		array_pop($classNameParts); //leave only the namespace
+		array_push($classNameParts,static::controllerName());
+		$basePath = implode('.',$classNameParts);
+		return Str::lower($basePath);
 	}
 
 	/**
@@ -43,7 +53,11 @@ class CrudController extends Controller {
 
 	private static function controllerName()
 	{
-		return Str::lower(preg_replace('/Controller$/', '', get_called_class()));
+		$fullClassName = Str::lower(preg_replace('/Controller$/', '', get_called_class()));
+
+		$nameParts = explode('\\', $fullClassName); //handle namespaces
+		$className = array_pop($nameParts);
+		return $className;
 	}
 
 	/**
@@ -66,8 +80,9 @@ class CrudController extends Controller {
 	 */
 	private function buildViewPath($views=array(), $base=null)
 	{
+
 		if(is_null($base))
-			$base = $this->viewsBase ?: static::controllerName();
+			$base = $this->viewsBasePath ?: static::controllerName();
 		if(!is_array($views)) $views = array($views);
 		array_unshift($views, $base);
 		$path = implode('.', $views);
