@@ -458,7 +458,8 @@ class CrudController extends Controller {
 	private function getRelatedMethod()
 	{
 		$requestSegments = Request::segments();
-		if(isset($requestSegments[2])) return $requestSegments[2];
+
+		if(count($requestSegments)>=3) return array_pop($requestSegments);
 
 		return null;
 	}
