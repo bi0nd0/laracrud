@@ -1,6 +1,5 @@
 <?php namespace Whitegolem\LaraCrud\Routing\Controllers;
 
-use Illuminate\Routing\Controllers\Controller;
 
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\View;
@@ -9,11 +8,9 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Redirect;
 
-class CrudController extends Controller {
+class CrudController extends BaseController {
 
 	protected $modelName;
-
-	protected $viewsBasePath;
 
 	private $resultsKey;
 
@@ -23,70 +20,9 @@ class CrudController extends Controller {
 
 	public function __construct()
 	{
-		$this->modelName = $this->modelName ?: Str::studly(Str::singular(static::controllerName()));
-		$this->viewsBasePath = $this->viewsBasePath ?: $this->setViewsBasePath();
+		parent::__construct();
 		$this->resultsKey = static::controllerName();
 		$this->resultsKeySingular = Str::singular($this->resultsKey);
-	}
-
-	private function setViewsBasePath()
-	{
-		$classNameParts = explode('\\', get_called_class());
-		array_pop($classNameParts); //leave only the namespace
-		array_push($classNameParts,static::controllerName());
-		$basePath = implode('.',$classNameParts);
-		return Str::lower($basePath);
-	}
-
-	/**
-	 * Setup the layout used by the controller.
-	 *
-	 * @return void
-	 */
-	protected function setupLayout()
-	{
-		if ( ! is_null($this->layout))
-		{
-			$this->layout = View::make($this->layout);
-		}
-	}
-
-	private static function controllerName()
-	{
-		$fullClassName = Str::lower(preg_replace('/Controller$/', '', get_called_class()));
-
-		$nameParts = explode('\\', $fullClassName); //handle namespaces
-		$className = array_pop($nameParts);
-		return $className;
-	}
-
-	/**
-	 * get an instance of the model associated with the controller
-	 *
-	 */
-	private function modelInstance($input=array())
-	{
-		$modelName = $this->modelName;
-		$model = new $modelName($input);
-
-		return $model;
-	}
-
-	/**
-	 * builds the path of the view starting from a base (usually the controller name IE the plural form of the model)
-	 *
-	 * @param $array one or more views to concatenate
-	 * @return string the path of the view
-	 */
-	private function buildViewPath($views=array(), $base=null)
-	{
-
-		if(is_null($base))
-			$base = $this->viewsBasePath ?: static::controllerName();
-		if(!is_array($views)) $views = array($views);
-		array_unshift($views, $base);
-		$path = implode('.', $views);
-		return $path;
 	}
 
 	/**
@@ -98,7 +34,7 @@ class CrudController extends Controller {
 	protected function applyParams($object = null)
 	{
 
-		if(!$object) $object = $this->modelInstance();
+		if(!$object) $object = $this->getModel();
 
 		//search, sort
 		$query = $object
@@ -127,33 +63,7 @@ class CrudController extends Controller {
 		return array($query,$paginator);
 	}
 
-	/**
-	 * checks wheter it's an ajax request or not
-	 * in case of a jsonp request sets $callback to the name of the callback function
-	 */
-	protected function isAjaxRequest()
-	{
-		$callback = Input::get('callback', false);
 
-		return (Request::ajax() || $callback);
-	}
-
-	/**
-	 * prints a json response.
-	 * in case of a jsonp request wraps the json data with a callback function
-	 *
-	 * @param array $data the data to convert to json
-	 * @param int $status the status code to return in the response
-	 * @return json data
-	 */
-	protected function jsonResponse($data = array(), $status = 200)
-	{
-		$response = \Response::json($data,$status);
-
-		if($callback = Input::get('callback')) $response = $response->setCallback($callback);
-
-		return $response;
-	}
 
 	/**
 	 * get an array of data to use in the response
@@ -190,7 +100,7 @@ class CrudController extends Controller {
 	 */
 	public function index()
 	{
-		$model = $this->modelInstance();
+		$model = $this->getModel();
 
 		//use this hook to alter the parameters
 		$beforeQuery = Event::fire('before.query', array(&$parameters));
@@ -240,7 +150,7 @@ class CrudController extends Controller {
 	{
 		$input = Input::all();
 		
-		$model = $this->modelInstance($input);
+		$model = $this->getModel(null, $input);
 
 		//controlla se ci sono problemi durante il salvataggio
 		if(! $model->save() ) return $this->savingError($model);
@@ -270,7 +180,7 @@ class CrudController extends Controller {
 	 */
 	public function show($id)
 	{
-		$query = $this->modelInstance()->query();
+		$query = $this->getModel()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -306,7 +216,7 @@ class CrudController extends Controller {
 	 */
 	public function edit($id)
 	{
-		$query = $this->modelInstance()->query();
+		$query = $this->getModel()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -334,7 +244,7 @@ class CrudController extends Controller {
 	 */
 	public function update($id)
 	{
-		$query = $this->modelInstance()->query();
+		$query = $this->getModel()->query();
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
@@ -376,7 +286,7 @@ class CrudController extends Controller {
 	 */
 	public function destroy($id)
 	{
-		$model = $this->getModel($id);
+		$model = $this->getModel()->find($id);
 
 		$model->delete();
 
@@ -399,55 +309,6 @@ class CrudController extends Controller {
 		return Redirect::route($viewPath)->with('success', $message);
 	}
 
-	protected function getModel($id = null)
-	{
-		if($model = $this->modelInstance()->find($id)) return $model;
-
-		return $this->modelNotFoundError();
-
-	}
-
-	/**
-	* generates an error response when the model is not found or redirects home with an error
-	*
-	* @param String $message the message to print
-	* @return Response
-	*/
-	protected function modelNotFoundError($message = 'elemento non trovato')
-	{
-		$data = array(
-			'error' => true,
-			'message' =>$message
-		);
-
-		if($this->isAjaxRequest())
-		{
-			return $this->jsonResponse($data,404);
-		}
-		return Redirect::home()->with('error', $message);
-	}
-
-	/**
-	* generates an error response when the model cannot be saved
-	*
-	* @param Model $model the model we tried to save
-	* @return Response
-	*/
-	protected function savingError($model)
-	{
-		$data = array(
-			'error' => true,
-			'message' => 'saving error',
-			'errors' => $model->errors->toArray()
-		);
-
-		if($this->isAjaxRequest())
-		{
-			return $this->jsonResponse($data,400);
-		}
-		return Redirect::back()->withInput()->withErrors($model->errors);
-	}
-
 
 	/**
 	 *
@@ -466,7 +327,7 @@ class CrudController extends Controller {
 	private function getRelatedModel()
 	{
 		$method = $this->getRelatedMethod();
-		$model = $this->modelInstance();
+		$model = $this->getModel();
 		$relation = $model->$method();
 		return $relation->getRelated();
 	}
@@ -481,7 +342,7 @@ class CrudController extends Controller {
 	{
 		$method = $this->getRelatedMethod();
 
-		$model = $this->getModel($id);
+		$model = $this->getModel()->find($id);
 
 		//set the view to use in the response
 		if(!$viewPath)
@@ -537,7 +398,7 @@ class CrudController extends Controller {
 
 		if( $related = $relatedModel->find($relatedId) )
 		{
-			$model = $this->getModel($id);
+			$model = $this->getModel()->find($id);
 
 
 			$model->$method()->associate($related);
@@ -569,11 +430,9 @@ class CrudController extends Controller {
 		$method = $this->getRelatedMethod();
 		$relatedModel = $this->getRelatedModel();
 
-
-
 		if( $related = $relatedModel->find($relatedId) )
 		{
-			$model = $this->getModel($id);
+			$model = $this->getModel()->find($id);
 			$pivotData = Input::get('pivot', array());
 			if(!is_array($pivotData)) $pivotData = (array)$pivotData;
 
@@ -610,7 +469,7 @@ class CrudController extends Controller {
 	{
 		$method = $this->getRelatedMethod();
 
-		$model = $this->getModel($id);
+		$model = $this->getModel()->find($id);
 
 		if( $related = $model->$method()->get()->find($relatedId) )
 		{
