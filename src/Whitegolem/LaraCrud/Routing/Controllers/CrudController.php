@@ -10,19 +10,15 @@ use Illuminate\Support\Facades\Redirect;
 
 class CrudController extends BaseController {
 
-	protected $modelName;
-
 	private $resultsKey;
 
 	private $resultsKeySingular;
 
-	protected $paginate = false; //true to enable pagination by default
-
 	public function __construct()
 	{
 		parent::__construct();
-		$this->resultsKey = static::controllerName();
-		$this->resultsKeySingular = Str::singular($this->resultsKey);
+		$this->resultsKeySingular = $this->resultsKeySingular ?: $this->getResourceName();
+		$this->resultsKey = $this->resultsKey ?: Str::plural($this->resultsKeySingular);
 	}
 
 	/**

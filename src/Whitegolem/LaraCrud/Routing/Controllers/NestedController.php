@@ -9,17 +9,9 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Redirect;
 
-class NestedController extends Controller {
+class NestedController extends BaseController {
 
-	protected $modelName;
-
-	protected $viewsBasePath;
-
-	private $resultsKey;
-
-	private $resultsKeySingular;
-
-	protected $paginate = false; //true to enable pagination by default
+	protected $nestedModelName;
 
 	public function __construct()
 	{
@@ -27,13 +19,66 @@ class NestedController extends Controller {
 	}
 
 	/**
+	 * get the names of the parent or nested resource
+	 */
+	private function getModelsName($nested=false)
+	{
+		$classBaseName = class_basename($this);
+		$segments = explode('_',snake_case($classBaseName)); //the last segment should be the string 'controller'
+		$modelName = $segments[0];
+		$nestedModelName = $segments[1];
+
+		$name = ($nested) ? $nestedModelName : $modelName;
+
+		return Str::singular($name);
+	}
+
+	/**
+	 * get the name of the parent resource model
+	 */
+	protected function getModelName()
+	{
+		if(isset($this->modelName)) return $this->modelname;
+
+		return $this->getModelsName();
+	}
+
+	/**
+	 * get the name of the nested resource model
+	 */
+	protected function getNestedModelName()
+	{
+		if(isset($this->nestedModelName)) return $this->nestedModelname;
+
+		return $this->getModelsName(true);
+	}
+
+	protected function getNestedModel($input=array())
+	{
+		$modelClass = Str::studly($this->getModelName(true));
+		$nestedModel = new $modelClass($input);
+
+		return $nestedModel;
+	}
+
+
+
+	/**
 	 * Display a listing of the resource.
 	 *
 	 * @return Response
 	 */
-	public function index($id, )
+	public function index($id)
 	{
-		//
+		$model = $this->getModel();
+		$nestedModel = $this->getNestedModel();
+
+		$query = $nestedModel->newQuery();
+
+		//use this hook to alter the query
+		$beforeQuery = Event::fire('before.query', array(&$query));
+
+		$query = $this->getResults($query);
 	}
 
 	/**
@@ -41,7 +86,7 @@ class NestedController extends Controller {
 	 *
 	 * @return Response
 	 */
-	public function create($id, )
+	public function create($id)
 	{
 		//
 	}
@@ -51,7 +96,7 @@ class NestedController extends Controller {
 	 *
 	 * @return Response
 	 */
-	public function store($id, )
+	public function store($id)
 	{
 		//
 	}
