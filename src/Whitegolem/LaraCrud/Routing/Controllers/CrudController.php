@@ -146,7 +146,7 @@ class CrudController extends BaseController {
 	{
 		$input = Input::all();
 		
-		$model = $this->getModel(null, $input);
+		$model = $this->getModel($input);
 
 		//controlla se ci sono problemi durante il salvataggio
 		if(! $model->save() ) return $this->savingError($model);
