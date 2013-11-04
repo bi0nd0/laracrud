@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Redirect;
 
 class BaseController extends Controller {
 
-	protected $resourceName;
+	protected $modelName;
 
 	protected $viewPath;
 
@@ -42,7 +42,7 @@ class BaseController extends Controller {
 
 		$classNameParts = explode('\\', get_class($this));
 		array_pop($classNameParts); //leave only the namespace
-		array_push($classNameParts,Str::plural($this->getResourceName()));
+		array_push($classNameParts,Str::plural($this->getModelName()));
 		$basePath = implode('.',$classNameParts);
 		return Str::lower($basePath);
 	}
@@ -57,104 +57,53 @@ class BaseController extends Controller {
    	private function controllerSegment($index=0, $default = null)
    	{
 		$classBaseName = class_basename($this);
-		$controllername = str_replace('Controller$', '', $classBaseName); //remove the string 'Controlelr' from the class name
-		$segments = explode('_',snake_case($classBaseName)); //segment the controller name (to handle nested resources)
-
+		$controllername = preg_replace('/Controller$/', '', $classBaseName); //remove the string 'Controller' from the class name
+		$segments = preg_split('/(?=[A-Z])/', $controllername, -1, PREG_SPLIT_NO_EMPTY); //split on capital letters using positive lookahead (?=)
 		$segment = isset($segments[$index]) ? $segments[$index] : $default;
 
 		return $segment;
    	}
 
-	protected function getResourceName()
+   	/**
+   	 * @return string the key used to display json results, typically a plural noun
+   	 */
+	protected function getResourceKey()
 	{
-		if (isset($this->resourceName)) return $this->resourceName;
+		return Str::lower( $this->controllerSegment(0) );
+	}
+
+	/**
+	 * get the class name of the model
+	 */
+	protected function getModelName()
+	{
+		if (isset($this->modelName)) return $this->modelName;
 
 		$controllerName = $this->controllerSegment(0);
 		return Str::singular($controllerName);
 	}
 
-	protected function getRelationName()
+	/**
+	 * get the class name of the related model
+	 */
+	protected function getRelatedName()
 	{
-		if (isset($this->resourceName)) return $this->resourceName;
+		if (isset($this->relatedName)) return $this->relatedName;
+
+		$controllerName = $this->controllerSegment(1);
+		return Str::singular($controllerName);
 	}
 
 	/**
 	 * get an instance of the model associated with the controller
-	 *
 	 */
 	protected function getModel($input=array())
 	{
-		$modelClass = Str::studly($this->getResourceName());
+		$modelClass = $this->getModelName();
 		$model = new $modelClass($input);
 
 		return $model;
 	}
-
-	/**
-	* apply the request params to the query
-	*
-	* @param mixed $object Model/Relation a model query or a relation to be filtered
-	* @return array a modified query and eventually a Paginator
-	*/
-	protected function applyParams($query = null)
-	{
-
-		if(is_null($query)) $query = $this->getModel()->newQuery();
-
-		//search, sort
-		$query = $query
-					->eagerLoad(Input::get('with'))
-					->filterWhere(Input::get('where'))
-					->searchAny(Input::get('q'))
-					->sortBy(Input::get('sort'));
-
-		return $query;
-	}
-
-	protected function getResults($query)
-	{
-		$query = $this->applyParams($query);
-
-		if( (Input::get('page') || $this->paginate) )
-		{
-			$beforePagination = Event::fire('before.pagination', array(&$query));
-
-			$model = $query->getModel();
-			$nestedModel = $query->getRelation();
-
-			dd($nestedModel);
-
-			//check if $object is a model or a relation
-			$model = method_exists($object, 'getRelated') ? $object->getRelated() : $object;
-
-			$perPage = Input::get('pp') ?: $model->getPerPage();
-			$paginator = $query->paginate($perPage);
-
-			//preserve the url query in the paginator
-			$paginator->appends(Input::except('page'));
-		}
-
-	}
-
-	// protected function getResults($query)
-	// {
-	// 	//use this hook to alter the parameters
-	// 	$paginator = null;
-
-	// 	if( (Input::get('page') || $this->paginate) )
-	// 	{
-	// 		$beforePagination = Event::fire('before.pagination', array(&$query));
-
-	// 		//check if $object is a model or a relation
-	// 		$model = method_exists($object, 'getRelated') ? $object->getRelated() : $object;
-
-	// 		$perPage = Input::get('pp') ?: $model->getPerPage();
-	// 		$paginator = $query->paginate($perPage);
-
-	// 		//preserve the url query in the paginator
-	// 		$paginator->appends(Input::except('page'));
-	// 	}
-	// }
 
 	/**
 	 * builds the path of the view starting from a base (usually the controller name IE the plural form of the model)

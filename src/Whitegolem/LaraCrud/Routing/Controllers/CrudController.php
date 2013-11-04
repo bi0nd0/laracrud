@@ -17,8 +17,8 @@ class CrudController extends BaseController {
 	public function __construct()
 	{
 		parent::__construct();
-		$this->resultsKeySingular = $this->resultsKeySingular ?: $this->getResourceName();
-		$this->resultsKey = $this->resultsKey ?: Str::plural($this->resultsKeySingular);
+		$this->resultsKey = $this->resultsKey ?: $this->getResourceKey();
+		$this->resultsKeySingular = $this->resultsKeySingular ?: Str::singular($this->resultsKey);
 	}
 
 	/**
@@ -27,18 +27,29 @@ class CrudController extends BaseController {
 	* @param mixed $object Model/Relation a model query or a relation to be filtered
 	* @return array a modified query and eventually a Paginator
 	*/
-	protected function applyParams($object = null)
+	protected function applyParams($query = null)
 	{
 
-		if(!$object) $object = $this->getModel();
+		if(is_null($query)) $query = $this->getModel()->newQuery();
 
 		//search, sort
-		$query = $object
+		$query = $query
 					->eagerLoad(Input::get('with'))
 					->filterWhere(Input::get('where'))
 					->searchAny(Input::get('q'))
 					->sortBy(Input::get('sort'));
 
+		return $query;
+	}
+
+	/**
+	 * get an array of data to use in the response
+	 * @param Query $query the query to use to retrieve the data
+	 * @param Paginator $paginator
+	 * @param array $additionalData an associative array of data to merge with the data array
+	 */
+	protected function getData($query, $additionalData = array())
+	{
 		//use this hook to alter the parameters
 		$paginator = null;
 
@@ -47,7 +58,8 @@ class CrudController extends BaseController {
 			$beforePagination = Event::fire('before.pagination', array(&$query));
 
 			//check if $object is a model or a relation
-			$model = method_exists($object, 'getRelated') ? $object->getRelated() : $object;
+			$model = $query->getModel();
+			$model = method_exists($model, 'getRelated') ? $model->getRelated() : $model;
 
 			$perPage = Input::get('pp') ?: $model->getPerPage();
 			$paginator = $query->paginate($perPage);
@@ -56,19 +68,6 @@ class CrudController extends BaseController {
 			$paginator->appends(Input::except('page'));
 		}
 
-		return array($query,$paginator);
-	}
-
-
-
-	/**
-	 * get an array of data to use in the response
-	 * @param Query $query the query to use to retrieve the data
-	 * @param Paginator $paginator
-	 * @param array $additionalData an associative array of data to merge with the data array
-	 */
-	protected function getData($query,$paginator=null, $additionalData = array())
-	{
 		$results = isset($paginator) ? $paginator->getCollection() : $query->get();
 
 		$data = array();
@@ -97,16 +96,17 @@ class CrudController extends BaseController {
 	public function index()
 	{
 		$model = $this->getModel();
+		$query = $model->query();
 
 		//use this hook to alter the parameters
 		$beforeQuery = Event::fire('before.query', array(&$parameters));
 
-		list($query,$paginator) = $this->applyParams($model);
+		$query = $this->applyParams($query);
 
 		//use this hook to alter the query
 		$beforeResults = Event::fire('before.results', array(&$query));
 
-		$data = $this->getData($query,$paginator);
+		$data = $this->getData($query);
 		if($this->isAjaxRequest())
 		{
 			//use this hook to alter the data of the view
